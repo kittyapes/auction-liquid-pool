@@ -8,13 +8,24 @@ import "@openzeppelin/contracts/proxy/Clones.sol";
 import "./AuctionLiquidPool.sol";
 
 struct PoolParams {
+    // owner of the pool
     address owner;
+    // nft contract address
     address nft;
+    // nft locking period
     uint256 lockPeriod;
+    // auction period
     uint256 duration;
+    // target nfts to lock
     uint256[] tokenIds;
+    // price curve type - true: linear, false: exponential
     bool isLinear;
+    /**
+        if linear, price difference
+        if exponential, price difference in percentage
+     */
     uint256 delta;
+    // maNFT ratio, e.g. 1:1, 1:100
     uint256 ratio;
 }
 
@@ -30,6 +41,11 @@ contract AuctionLiquidPoolManager is Ownable {
         token = token_;
     }
 
+    /**
+     * @notice create pool contract locking nfts
+     * @dev only nft owners can call this function to lock their own nfts
+     * @return poolAddress address of generated pool
+     */
     function createPool(
         address nft_,
         uint256 lockPeriod_,
@@ -61,6 +77,11 @@ contract AuctionLiquidPoolManager is Ownable {
         emit PoolCreated(msg.sender, poolAddress, poolTemplate);
     }
 
+    /**
+     * @notice set pool template
+     * @dev only manager contract owner can call this function
+     * @param poolTemplate_ new template address
+     */
     function setPoolTemplate(address poolTemplate_) external onlyOwner {
         require(poolTemplate_ != address(0), "PoolManager: 0x0");
         poolTemplate = poolTemplate_;

@@ -28,7 +28,9 @@ contract AuctionLiquidPool is
     using SafeERC20Upgradeable for IERC20Upgradeable;
     using EnumerableSetUpgradeable for EnumerableSetUpgradeable.UintSet;
 
+    // keyHash being used for chainlink vrf coordinate
     bytes32 private keyHash;
+    // LINK token amount charging for fee
     uint256 private fee;
 
     AuctionLiquidPoolManager public manager;
@@ -42,13 +44,18 @@ contract AuctionLiquidPool is
     uint256 public delta;
     uint256 public ratio;
 
+    // random request id -> redeem requester
     mapping(bytes32 => address) public redeemers;
 
     struct Auction {
+        // last highest bidder
         address winner;
-        uint256 startedAt;
+        // maNFT token amount bidded
         uint256 bidAmount;
+        // ether amount bidded
         uint256 etherAmount;
+        // auction start time
+        uint256 startedAt;
     }
     mapping(uint256 => Auction) public auctions;
 
@@ -89,6 +96,11 @@ contract AuctionLiquidPool is
         ratio = params.ratio * 1 ether;
     }
 
+    /**
+     * @notice user can redeem random NFT by paying ratio amount of maNFT
+     * @dev this will request randome number via chainlink vrf coordinator
+     * requested random number will be retrieved by following {fulfillRandomness}
+     */
     function redeem() external {
         require(block.timestamp > createdAt + lockPeriod, "Pool: NFTS_UNLOCKED");
         require(LINK.balanceOf(address(this)) >= fee, "Pool: INSUFFICIENT_LINK");
@@ -97,6 +109,11 @@ contract AuctionLiquidPool is
         redeemers[requestId] = msg.sender;
     }
 
+    /**
+     * @notice above {redeem} function makes random number generation request
+     * @param requestId above {redeem} function returns requestId per request
+     * @param randomness generated random number to determine which tokenId to redeem
+     */
     function fulfillRandomness(bytes32 requestId, uint256 randomness) internal override {
         uint256 tokenId = tokenIds.at(randomness % tokenIds.length());
         require(
@@ -113,11 +130,24 @@ contract AuctionLiquidPool is
         IERC721Upgradeable(nft).safeTransferFrom(address(this), redeemer, tokenId);
     }
 
+    /**
+     * @notice start auction for tokenId
+     * @dev any user can start auction for a targeted NFT
+     * @param tokenId targeted token Id
+     */
     function startAuction(uint256 tokenId) external onlyExistingId(tokenId) {
         require(auctions[tokenId].startedAt == 0, "Pool: ALREADY_IN_AUCTION");
         auctions[tokenId].startedAt = block.timestamp;
     }
 
+    /**
+     * @notice end auction for tokenId
+     * @dev only pool owner can end the auction
+     * - transfer NFT to auction winner,
+     * - burn staked maNFT
+     * - transfer ether to pool owner as premium
+     * @param tokenId targeted token Id
+     */
     function endAuction(uint256 tokenId) external onlyOwner onlyExistingId(tokenId) {
         Auction memory auction = auctions[tokenId];
         require(
@@ -133,6 +163,17 @@ contract AuctionLiquidPool is
         payable(owner()).transfer(auction.etherAmount);
     }
 
+    /**
+     * @notice bid to the auction for tokenId
+     * @dev any user can bid with maNFT and ether
+     * bid flow is like this
+     * first user comes with certain maNFT amount, takes min of incoming amount and ratio
+     * for next bids, maNFT amount should be higher than the amount determined by price curve and delta,
+     * if maNFT amount reaches ratio, start accepting ether
+     * later on, take maNFT for ratio amount only and accept higher ether only
+     * @param tokenId targeted token Id
+     * @param amount of maNFT to bid
+     */
     function bid(uint256 tokenId, uint256 amount) external payable {
         Auction storage auction = auctions[tokenId];
         require(block.timestamp > auction.startedAt + duration, "Pool: EXPIRED");
@@ -144,6 +185,7 @@ contract AuctionLiquidPool is
                 address(this),
                 bidAmount
             );
+            if (msg.value > 0) payable(msg.sender).transfer(msg.value);
             auction.bidAmount = bidAmount;
         } else if (auction.bidAmount < ratio) {
             uint256 nextBidAmount = isLinear
@@ -158,6 +200,7 @@ contract AuctionLiquidPool is
                 address(this),
                 bidAmount
             );
+            if (msg.value > 0) payable(msg.sender).transfer(msg.value);
             auction.bidAmount = bidAmount;
         } else {
             require(msg.value > auction.etherAmount, "Pool: TOO_LOW_ETH");
