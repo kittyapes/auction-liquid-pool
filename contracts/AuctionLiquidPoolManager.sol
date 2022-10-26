@@ -20,18 +20,14 @@ struct PoolParams {
 
 contract AuctionLiquidPoolManager is Ownable {
     address public poolTemplate;
-    address public operator;
     address public token;
     address[] public pools;
 
     event PoolCreated(address indexed owner_, address indexed pool_, address poolTemplate_);
 
-    constructor(address token_, address operator_) {
+    constructor(address token_) {
         require(token_ != address(0), "PoolManager: TOKEN_0x0");
         token = token_;
-
-        require(operator_ != address(0), "PoolManager: OPERATOR_0x0");
-        operator = operator_;
     }
 
     function createPool(
@@ -58,7 +54,7 @@ contract AuctionLiquidPoolManager is Ownable {
             ratio_
         );
         AuctionLiquidPool pool = AuctionLiquidPool(poolAddress);
-        pool.initialize(params, operator);
+        pool.initialize(params);
         pool.transferOwnership(msg.sender);
         pools.push(poolAddress);
 
