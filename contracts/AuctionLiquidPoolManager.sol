@@ -4,6 +4,7 @@ pragma solidity 0.8.17;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/proxy/Clones.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
 import "./AuctionLiquidPool.sol";
 
@@ -73,6 +74,9 @@ contract AuctionLiquidPoolManager is Ownable {
         pool.initialize(params);
         pool.transferOwnership(msg.sender);
         pools.push(poolAddress);
+
+        for (uint256 i; i < tokenIds_.length; i += 1)
+            IERC721(nft_).safeTransferFrom(msg.sender, poolAddress, tokenIds_[i]);
 
         emit PoolCreated(msg.sender, poolAddress, poolTemplate);
     }

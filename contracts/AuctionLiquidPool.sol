@@ -28,6 +28,8 @@ contract AuctionLiquidPool is
     using SafeERC20Upgradeable for IERC20Upgradeable;
     using EnumerableSetUpgradeable for EnumerableSetUpgradeable.UintSet;
 
+    event RedeemReqeusted(address indexed account, bytes32 indexed requestId);
+
     // keyHash being used for chainlink vrf coordinate
     bytes32 private keyHash;
     // LINK token amount charging for fee
@@ -40,6 +42,7 @@ contract AuctionLiquidPool is
     uint256 public lockPeriod;
     uint256 public duration;
     EnumerableSetUpgradeable.UintSet private tokenIds;
+    EnumerableSetUpgradeable.UintSet private freeTokenIds;
     bool public isLinear;
     uint256 public delta;
     uint256 public ratio;
@@ -59,11 +62,10 @@ contract AuctionLiquidPool is
     }
     mapping(uint256 => Auction) public auctions;
 
-    constructor()
-        VRFConsumerBase(
-            0x271682DEB8C4E0901D1a1550aD2e64D568E69909, // VRF Coordinator Etherscan
-            0x514910771AF9Ca656af840dff83E8264EcF986CA // LINK Token Etherscan
-        )
+    constructor(address coordinator, address link)
+        VRFConsumerBase(coordinator, link)
+    // 0x271682DEB8C4E0901D1a1550aD2e64D568E69909, // VRF Coordinator Etherscan
+    // 0x514910771AF9Ca656af840dff83E8264EcF986CA // LINK Token Etherscan
     {
         keyHash = 0x8af398995b04c28e9951adb9721ef74c74f93e6a478f39e7e0777be13527e7ef; // Etherscan
         fee = 1e14; // 0.0001 LINK
@@ -80,12 +82,8 @@ contract AuctionLiquidPool is
         __ReentrancyGuard_init();
 
         for (uint256 i; i < params.tokenIds.length; i += 1) {
-            IERC721Upgradeable(nft).safeTransferFrom(
-                params.owner,
-                address(this),
-                params.tokenIds[i]
-            );
             tokenIds.add(params.tokenIds[i]);
+            freeTokenIds.add(params.tokenIds[i]);
         }
         manager = AuctionLiquidPoolManager(msg.sender);
         nft = params.nft;
@@ -93,7 +91,8 @@ contract AuctionLiquidPool is
         duration = params.duration;
         isLinear = params.isLinear;
         delta = params.delta;
-        ratio = params.ratio * 1 ether;
+        ratio = params.ratio;
+        createdAt = block.timestamp;
     }
 
     /**
@@ -101,12 +100,13 @@ contract AuctionLiquidPool is
      * @dev this will request randome number via chainlink vrf coordinator
      * requested random number will be retrieved by following {fulfillRandomness}
      */
-    function redeem() external {
-        require(block.timestamp > createdAt + lockPeriod, "Pool: NFTS_UNLOCKED");
+    function redeem() external returns (bytes32 requestId) {
+        require(block.timestamp < createdAt + lockPeriod, "Pool: NFTS_UNLOCKED");
         require(LINK.balanceOf(address(this)) >= fee, "Pool: INSUFFICIENT_LINK");
 
-        bytes32 requestId = requestRandomness(keyHash, fee);
+        requestId = requestRandomness(keyHash, fee);
         redeemers[requestId] = msg.sender;
+        emit RedeemReqeusted(msg.sender, requestId);
     }
 
     /**
@@ -115,15 +115,10 @@ contract AuctionLiquidPool is
      * @param randomness generated random number to determine which tokenId to redeem
      */
     function fulfillRandomness(bytes32 requestId, uint256 randomness) internal override {
-        uint256 tokenId = tokenIds.at(randomness % tokenIds.length());
-        require(
-            auctions[tokenId].startedAt == 0 ||
-                auctions[tokenId].startedAt + duration < block.timestamp,
-            "Pool: LOCKED_NFT"
-        );
-
+        uint256 tokenId = freeTokenIds.at(randomness % freeTokenIds.length());
         address redeemer = redeemers[requestId];
         tokenIds.remove(tokenId);
+        freeTokenIds.remove(tokenId);
         delete redeemers[requestId];
 
         maNFT(manager.token()).burn(redeemer, ratio);
@@ -136,8 +131,20 @@ contract AuctionLiquidPool is
      * @param tokenId targeted token Id
      */
     function startAuction(uint256 tokenId) external onlyExistingId(tokenId) {
-        require(auctions[tokenId].startedAt == 0, "Pool: ALREADY_IN_AUCTION");
+        Auction memory auction = auctions[tokenId];
+        if (auction.startedAt > 0) {
+            require(block.timestamp > auction.startedAt + duration, "Pool: STILL_ACTIVE");
+            delete auctions[tokenId];
+
+            if (auction.bidAmount > 0) {
+                tokenIds.remove(tokenId);
+                maNFT(manager.token()).burn(address(this), auction.bidAmount);
+                IERC721Upgradeable(nft).safeTransferFrom(address(this), auction.winner, tokenId);
+            } else freeTokenIds.add(tokenId);
+            payable(owner()).transfer(auction.etherAmount);
+        }
         auctions[tokenId].startedAt = block.timestamp;
+        freeTokenIds.remove(tokenId);
     }
 
     /**
@@ -157,10 +164,28 @@ contract AuctionLiquidPool is
         );
 
         delete auctions[tokenId];
-        tokenIds.remove(tokenId);
-        maNFT(manager.token()).burn(address(this), auction.bidAmount);
-        IERC721Upgradeable(nft).safeTransferFrom(address(this), auction.winner, tokenId);
+        if (auction.bidAmount > 0) {
+            tokenIds.remove(tokenId);
+            maNFT(manager.token()).burn(address(this), auction.bidAmount);
+            IERC721Upgradeable(nft).safeTransferFrom(address(this), auction.winner, tokenId);
+        } else freeTokenIds.add(tokenId);
         payable(owner()).transfer(auction.etherAmount);
+    }
+
+    /**
+     * @notice cancel auction for tokenId
+     * @dev only pool owner can end the auction
+     * - return bid amounts to bidder,
+     * - lock NFT back to contract
+     * @param tokenId targeted token Id
+     */
+    function cancelAuction(uint256 tokenId) external onlyOwner onlyExistingId(tokenId) {
+        Auction memory auction = auctions[tokenId];
+        delete auctions[tokenId];
+        freeTokenIds.add(tokenId);
+        if (auction.bidAmount > 0)
+            IERC20Upgradeable(manager.token()).safeTransfer(auction.winner, auction.bidAmount);
+        if (auction.etherAmount > 0) payable(auction.winner).transfer(auction.etherAmount);
     }
 
     /**
@@ -176,7 +201,7 @@ contract AuctionLiquidPool is
      */
     function bid(uint256 tokenId, uint256 amount) external payable {
         Auction storage auction = auctions[tokenId];
-        require(block.timestamp > auction.startedAt + duration, "Pool: EXPIRED");
+        require(block.timestamp < auction.startedAt + duration, "Pool: EXPIRED");
 
         if (auction.bidAmount == 0) {
             uint256 bidAmount = MathUpgradeable.min(amount, ratio);
