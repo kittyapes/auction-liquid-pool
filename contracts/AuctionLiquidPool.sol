@@ -231,8 +231,8 @@ contract AuctionLiquidPool is
             require(msg.value > auction.etherAmount, "Pool: TOO_LOW_ETH");
             IERC20Upgradeable(manager.token()).transfer(auction.winner, ratio);
             IERC20Upgradeable(manager.token()).safeTransferFrom(msg.sender, address(this), ratio);
-            auction.etherAmount = msg.value;
             if (auction.etherAmount > 0) payable(auction.winner).transfer(auction.etherAmount);
+            auction.etherAmount = msg.value;
         }
         auction.winner = msg.sender;
     }

@@ -1,9 +1,10 @@
 import { expect } from 'chai';
 import { ethers, network } from 'hardhat';
-import { Contract, utils } from 'ethers';
+import { BigNumber, Contract, utils } from 'ethers';
 import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers';
+import { increaseTime } from './utils';
 
-describe.only('Auction Liquid Pool', function () {
+describe('Auction Liquid Pool', function () {
   let owner: SignerWithAddress;
   let alice: SignerWithAddress;
   let bob: SignerWithAddress;
@@ -54,7 +55,7 @@ describe.only('Auction Liquid Pool', function () {
     await pool.startAuction(0);
   });
 
-  it('#bid', async () => {
+  it('#auction', async () => {
     await pool.connect(alice).bid(0, utils.parseEther('1'));
     let auction = await pool.auctions(0);
     expect(auction[0]).to.eq(alice.address);
@@ -68,6 +69,15 @@ describe.only('Auction Liquid Pool', function () {
     await pool.connect(alice).bid(0, 0, { value: utils.parseEther('1') });
     auction = await pool.auctions(0);
     expect(auction[0]).to.eq(alice.address);
+    const ethBalance = await ethers.provider.getBalance(owner.address);
+    await increaseTime(BigNumber.from('86400'));
+    await pool.endAuction(0);
+    expect(await nft.ownerOf(0)).to.eq(alice.address);
+    expect(await ethers.provider.getBalance(owner.address)).to.closeTo(
+      ethBalance.add(auction[2]),
+      utils.parseEther('0.0002'),
+      '',
+    );
   });
 
   it('#redeem', async () => {
@@ -75,6 +85,6 @@ describe.only('Auction Liquid Pool', function () {
     const receipt = await tx.wait();
     const requestId = receipt.events[receipt.events.length - 1].topics[2];
     await coordinator.callBackWithRandomness(requestId, '123456', pool.address);
-    expect(await nft.balanceOf(owner.address)).to.eq(1);
+    expect(await nft.ownerOf(2)).to.eq(owner.address);
   });
 });
