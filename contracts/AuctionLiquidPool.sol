@@ -103,6 +103,7 @@ contract AuctionLiquidPool is
     function redeem() external returns (bytes32 requestId) {
         require(block.timestamp < createdAt + lockPeriod, "Pool: NFTS_UNLOCKED");
         require(LINK.balanceOf(address(this)) >= fee, "Pool: INSUFFICIENT_LINK");
+        require(freeTokenIds.length() > 0, "Pool: NO_FREE_NFTS");
 
         requestId = requestRandomness(keyHash, fee);
         redeemers[requestId] = msg.sender;
