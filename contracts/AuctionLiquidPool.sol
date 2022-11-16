@@ -53,10 +53,8 @@ contract AuctionLiquidPool is
     struct Auction {
         // last highest bidder
         address winner;
-        // maNFT token amount bidded
-        uint256 bidAmount;
         // ether amount bidded
-        uint256 etherAmount;
+        uint256 bidAmount;
         // auction start time
         uint256 startedAt;
     }
@@ -139,10 +137,10 @@ contract AuctionLiquidPool is
 
             if (auction.bidAmount > 0) {
                 tokenIds.remove(tokenId);
-                maNFT(manager.token()).burn(address(this), auction.bidAmount);
+                maNFT(manager.token()).burn(address(this), ratio);
                 IERC721Upgradeable(nft).safeTransferFrom(address(this), auction.winner, tokenId);
             } else freeTokenIds.add(tokenId);
-            payable(owner()).transfer(auction.etherAmount);
+            payable(owner()).transfer(auction.bidAmount);
         }
         auctions[tokenId].startedAt = block.timestamp;
         freeTokenIds.remove(tokenId);
@@ -167,10 +165,10 @@ contract AuctionLiquidPool is
         delete auctions[tokenId];
         if (auction.bidAmount > 0) {
             tokenIds.remove(tokenId);
-            maNFT(manager.token()).burn(address(this), auction.bidAmount);
+            maNFT(manager.token()).burn(address(this), ratio);
             IERC721Upgradeable(nft).safeTransferFrom(address(this), auction.winner, tokenId);
         } else freeTokenIds.add(tokenId);
-        payable(owner()).transfer(auction.etherAmount);
+        payable(owner()).transfer(auction.bidAmount);
     }
 
     /**
@@ -184,56 +182,39 @@ contract AuctionLiquidPool is
         Auction memory auction = auctions[tokenId];
         delete auctions[tokenId];
         freeTokenIds.add(tokenId);
-        if (auction.bidAmount > 0)
-            IERC20Upgradeable(manager.token()).safeTransfer(auction.winner, auction.bidAmount);
-        if (auction.etherAmount > 0) payable(auction.winner).transfer(auction.etherAmount);
+        if (auction.bidAmount > 0) {
+            payable(auction.winner).transfer(auction.bidAmount);
+            IERC20Upgradeable(manager.token()).safeTransfer(auction.winner, ratio);
+        }
     }
 
     /**
      * @notice bid to the auction for tokenId
-     * @dev any user can bid with maNFT and ether
+     * @dev any user can bid with ratio amount of maNFT and customized amount of ether
      * bid flow is like this
-     * first user comes with certain maNFT amount, takes min of incoming amount and ratio
-     * for next bids, maNFT amount should be higher than the amount determined by price curve and delta,
-     * if maNFT amount reaches ratio, start accepting ether
-     * later on, take maNFT for ratio amount only and accept higher ether only
+     * first user comes with ratio amount of maNFT and more than 0.1 amount of ether
+     * for next bids, ether amount should be higher than the amount determined by price curve and delta,
+     * maNFT amount would be always the same - ratio.
      * @param tokenId targeted token Id
-     * @param amount of maNFT to bid
      */
-    function bid(uint256 tokenId, uint256 amount) external payable {
+    function bid(uint256 tokenId) external payable {
         Auction storage auction = auctions[tokenId];
         require(block.timestamp < auction.startedAt + duration, "Pool: EXPIRED");
+        require(msg.value >= 0.1 ether, "Pool: TOO_LOW_BID");
 
         if (auction.bidAmount == 0) {
-            uint256 bidAmount = MathUpgradeable.min(amount, ratio);
-            IERC20Upgradeable(manager.token()).safeTransferFrom(
-                msg.sender,
-                address(this),
-                bidAmount
-            );
-            if (msg.value > 0) payable(msg.sender).transfer(msg.value);
-            auction.bidAmount = bidAmount;
-        } else if (auction.bidAmount < ratio) {
+            IERC20Upgradeable(manager.token()).safeTransferFrom(msg.sender, address(this), ratio);
+            auction.bidAmount = msg.value;
+        } else {
             uint256 nextBidAmount = isLinear
                 ? auction.bidAmount + delta
                 : auction.bidAmount + auction.bidAmount.decimalMul(delta);
-            require(amount >= nextBidAmount, "Pool: TOO_LOW_BID");
+            require(msg.value >= nextBidAmount, "Pool: INSUFFICIENT_BID");
+            if (msg.value > nextBidAmount) payable(msg.sender).transfer(msg.value - nextBidAmount);
+            auction.bidAmount = nextBidAmount;
 
-            uint256 bidAmount = MathUpgradeable.min(nextBidAmount, ratio);
-            IERC20Upgradeable(manager.token()).transfer(auction.winner, auction.bidAmount);
-            IERC20Upgradeable(manager.token()).safeTransferFrom(
-                msg.sender,
-                address(this),
-                bidAmount
-            );
-            if (msg.value > 0) payable(msg.sender).transfer(msg.value);
-            auction.bidAmount = bidAmount;
-        } else {
-            require(msg.value > auction.etherAmount, "Pool: TOO_LOW_ETH");
             IERC20Upgradeable(manager.token()).transfer(auction.winner, ratio);
             IERC20Upgradeable(manager.token()).safeTransferFrom(msg.sender, address(this), ratio);
-            if (auction.etherAmount > 0) payable(auction.winner).transfer(auction.etherAmount);
-            auction.etherAmount = msg.value;
         }
         auction.winner = msg.sender;
     }

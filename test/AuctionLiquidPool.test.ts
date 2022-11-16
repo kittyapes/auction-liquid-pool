@@ -56,25 +56,24 @@ describe('Auction Liquid Pool', function () {
   });
 
   it('#auction', async () => {
-    await pool.connect(alice).bid(0, utils.parseEther('1'));
-    let auction = await pool.auctions(0);
-    expect(auction[0]).to.eq(alice.address);
-    await expect(pool.connect(bob).bid(0, utils.parseEther('1.5'))).revertedWith(
+    await expect(pool.connect(alice).bid(0, { value: utils.parseEther('0.01') })).revertedWith(
       'Pool: TOO_LOW_BID',
     );
-    await pool.connect(bob).bid(0, utils.parseEther('2'));
+    await pool.connect(alice).bid(0, { value: utils.parseEther('1') });
+    let auction = await pool.auctions(0);
+    expect(auction[0]).to.eq(alice.address);
+    await expect(pool.connect(bob).bid(0, { value: utils.parseEther('1.5') })).revertedWith(
+      'Pool: INSUFFICIENT_BID',
+    );
+    await pool.connect(bob).bid(0, { value: utils.parseEther('2') });
     auction = await pool.auctions(0);
     expect(auction[0]).to.eq(bob.address);
-    await expect(pool.connect(alice).bid(0, 0)).revertedWith('Pool: TOO_LOW_ETH');
-    await pool.connect(alice).bid(0, 0, { value: utils.parseEther('1') });
-    auction = await pool.auctions(0);
-    expect(auction[0]).to.eq(alice.address);
     const ethBalance = await ethers.provider.getBalance(owner.address);
     await increaseTime(BigNumber.from('86400'));
     await pool.endAuction(0);
-    expect(await nft.ownerOf(0)).to.eq(alice.address);
+    expect(await nft.ownerOf(0)).to.eq(bob.address);
     expect(await ethers.provider.getBalance(owner.address)).to.closeTo(
-      ethBalance.add(auction[2]),
+      ethBalance.add(auction[1]),
       utils.parseEther('0.0002'),
       '',
     );
