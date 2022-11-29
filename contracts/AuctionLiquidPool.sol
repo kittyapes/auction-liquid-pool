@@ -46,6 +46,9 @@ contract AuctionLiquidPool is
     bool public isLinear;
     uint256 public delta;
     uint256 public ratio;
+    uint256 public randomFee;
+    uint256 public tradingFee;
+    uint256 public startPrice;
 
     // random request id -> redeem requester
     mapping(bytes32 => address) public redeemers;
@@ -65,8 +68,12 @@ contract AuctionLiquidPool is
     // 0x271682DEB8C4E0901D1a1550aD2e64D568E69909, // VRF Coordinator Etherscan
     // 0x514910771AF9Ca656af840dff83E8264EcF986CA // LINK Token Etherscan
     {
-        keyHash = 0x8af398995b04c28e9951adb9721ef74c74f93e6a478f39e7e0777be13527e7ef; // Etherscan
-        fee = 1e14; // 0.0001 LINK
+        keyHash = 0x0476f9a745b61ea5c0ab224d3a6e4c99f0b02fce4da01143a4f70aa80ae76e8a;
+        fee = 1e17; // 0.1 LINK
+
+        // Etherscan
+        // keyHash = 0x8af398995b04c28e9951adb9721ef74c74f93e6a478f39e7e0777be13527e7ef;
+        // fee = 1e14; // 0.0001 LINK
     }
 
     modifier onlyExistingId(uint256 tokenId) {
@@ -90,6 +97,9 @@ contract AuctionLiquidPool is
         isLinear = params.isLinear;
         delta = params.delta;
         ratio = params.ratio;
+        randomFee = params.randomFee;
+        tradingFee = params.tradingFee;
+        startPrice = params.startPrice;
         createdAt = block.timestamp;
     }
 
@@ -200,11 +210,12 @@ contract AuctionLiquidPool is
     function bid(uint256 tokenId) external payable {
         Auction storage auction = auctions[tokenId];
         require(block.timestamp < auction.startedAt + duration, "Pool: EXPIRED");
-        require(msg.value >= 0.1 ether, "Pool: TOO_LOW_BID");
+        require(msg.value >= startPrice, "Pool: TOO_LOW_BID");
 
         if (auction.bidAmount == 0) {
             IERC20Upgradeable(manager.token()).safeTransferFrom(msg.sender, address(this), ratio);
             auction.bidAmount = msg.value;
+            // if (msg.value > startPrice) payable(msg.sender).transfer(msg.value - startPrice);
         } else {
             uint256 nextBidAmount = isLinear
                 ? auction.bidAmount + delta

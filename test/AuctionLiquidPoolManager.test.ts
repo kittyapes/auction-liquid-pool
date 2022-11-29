@@ -1,6 +1,6 @@
 import { expect } from 'chai';
 import { ethers } from 'hardhat';
-import { Contract } from 'ethers';
+import { Contract, utils } from 'ethers';
 
 describe('Auction Liquid Pool Manager', function () {
   let manager: Contract;
@@ -8,9 +8,8 @@ describe('Auction Liquid Pool Manager', function () {
   let nft: Contract;
 
   beforeEach(async () => {
-
-    const VRFCoordinatorFactory = await ethers.getContractFactory("VRFCoordinatorMock");
-    const LinkFactory = await ethers.getContractFactory("LinkToken");
+    const VRFCoordinatorFactory = await ethers.getContractFactory('VRFCoordinatorMock');
+    const LinkFactory = await ethers.getContractFactory('LinkToken');
     const link = await LinkFactory.deploy();
     const coordinator = await VRFCoordinatorFactory.deploy(link.address);
 
@@ -32,7 +31,18 @@ describe('Auction Liquid Pool Manager', function () {
   });
 
   it('#createPool', async () => {
-    const params = [nft.address, 86400 * 7, 86400, [0, 1, 2], false, 10, 100];
+    const params = [
+      nft.address,
+      86400 * 7,
+      86400,
+      [0, 1, 2],
+      false,
+      1000,
+      utils.parseEther('2'),
+      50,
+      10,
+      utils.parseEther('0.01'),
+    ];
 
     const tx = await manager.createPool(...params);
     const receipt = await tx.wait();

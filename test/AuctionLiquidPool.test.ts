@@ -38,7 +38,18 @@ describe('Auction Liquid Pool', function () {
     await nft.mint(3);
     await nft.setApprovalForAll(manager.address, true);
 
-    const params = [nft.address, 86400 * 7, 86400, [0, 1, 2], false, 1000, utils.parseEther('2')];
+    const params = [
+      nft.address,
+      86400 * 7,
+      86400,
+      [0, 1, 2],
+      false,
+      1000,
+      utils.parseEther('2'),
+      50,
+      10,
+      utils.parseEther('0.1'),
+    ];
     const tx = await manager.createPool(...params);
     const receipt = await tx.wait();
     pool = await AuctionLiquidPoolFactory.attach(

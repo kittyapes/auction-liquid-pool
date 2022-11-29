@@ -28,6 +28,9 @@ struct PoolParams {
     uint256 delta;
     // maNFT ratio, e.g. 1:1, 1:100
     uint256 ratio;
+    uint256 randomFee;
+    uint256 tradingFee;
+    uint256 startPrice;
 }
 
 contract AuctionLiquidPoolManager is Ownable {
@@ -54,7 +57,10 @@ contract AuctionLiquidPoolManager is Ownable {
         uint256[] calldata tokenIds_,
         bool isLinear_,
         uint256 delta_,
-        uint256 ratio_
+        uint256 ratio_,
+        uint256 randomFee_,
+        uint256 tradingFee_,
+        uint256 startPrice_
     ) external returns (address poolAddress) {
         require(poolTemplate != address(0), "PoolManager: MISSING_VAULT_TEMPLATE");
         require(tokenIds_.length > 0, "PoolManager: INFOS_MISSING");
@@ -68,7 +74,10 @@ contract AuctionLiquidPoolManager is Ownable {
             tokenIds_,
             isLinear_,
             delta_,
-            ratio_
+            ratio_,
+            randomFee_,
+            tradingFee_,
+            startPrice_
         );
         AuctionLiquidPool pool = AuctionLiquidPool(poolAddress);
         pool.initialize(params);
