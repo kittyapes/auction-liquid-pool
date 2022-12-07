@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { ethers, network } from 'hardhat';
+import { ethers } from 'hardhat';
 import { BigNumber, Contract, utils } from 'ethers';
 import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers';
 import { increaseTime } from './utils';
@@ -35,7 +35,7 @@ describe('Auction Liquid Pool', function () {
     const poolTemplate = await AuctionLiquidPoolFactory.deploy(coordinator.address, link.address);
     await manager.setPoolTemplate(poolTemplate.address);
 
-    await nft.mint(3);
+    await nft.mint(4);
     await nft.setApprovalForAll(manager.address, true);
 
     const params = [
@@ -62,6 +62,7 @@ describe('Auction Liquid Pool', function () {
     await maNFT.connect(alice).approve(pool.address, utils.parseEther('100'));
     await maNFT.connect(bob).approve(pool.address, utils.parseEther('100'));
     await link.transfer(pool.address, utils.parseEther('1'));
+    await nft.setApprovalForAll(pool.address, true);
 
     await pool.startAuction(0);
   });
@@ -91,10 +92,19 @@ describe('Auction Liquid Pool', function () {
   });
 
   it('#redeem', async () => {
-    const tx = await pool.connect(owner).redeem();
+    const tx = await pool.connect(owner).redeem(1);
     const receipt = await tx.wait();
-    const requestId = receipt.events[receipt.events.length - 1].topics[2];
+    const requestId = receipt.events[receipt.events.length - 1].args.requestIds[0];
     await coordinator.callBackWithRandomness(requestId, '123456', pool.address);
+    expect(await nft.ownerOf(2)).to.eq(owner.address);
+  });
+
+  it('#swap', async () => {
+    const tx = await pool.connect(owner).swap(3);
+    const receipt = await tx.wait();
+    const requestId = receipt.events[receipt.events.length - 1].args.requestId;
+    await coordinator.callBackWithRandomness(requestId, '123456', pool.address);
+    expect(await nft.ownerOf(3)).to.eq(pool.address);
     expect(await nft.ownerOf(2)).to.eq(owner.address);
   });
 });
