@@ -14,17 +14,20 @@ describe('Auction Liquid Pool Manager', function () {
     const coordinator = await VRFCoordinatorFactory.deploy(link.address);
 
     const MockTokenFactory = await ethers.getContractFactory('MockToken');
-    const MockNFTFactory = await ethers.getContractFactory('MockNFT');
+    const Mock721NFTFactory = await ethers.getContractFactory('Mock721NFT');
     maNFT = await MockTokenFactory.deploy();
-    nft = await MockNFTFactory.deploy();
+    nft = await Mock721NFTFactory.deploy();
 
-    const AuctionLiquidPoolFactory = await ethers.getContractFactory('AuctionLiquidPool');
+    const AuctionLiquidPool721Factory = await ethers.getContractFactory('AuctionLiquidPool721');
     const AuctionLiquidPoolManagerFactory = await ethers.getContractFactory(
       'AuctionLiquidPoolManager',
     );
     manager = await AuctionLiquidPoolManagerFactory.deploy(maNFT.address);
-    const poolTemplate = await AuctionLiquidPoolFactory.deploy(coordinator.address, link.address);
-    await manager.setPoolTemplate(poolTemplate.address);
+    const poolTemplate = await AuctionLiquidPool721Factory.deploy(
+      coordinator.address,
+      link.address,
+    );
+    await manager.setPool721Template(poolTemplate.address);
 
     await nft.mint(3);
     await nft.setApprovalForAll(manager.address, true);
@@ -44,7 +47,7 @@ describe('Auction Liquid Pool Manager', function () {
       utils.parseEther('0.01'),
     ];
 
-    const tx = await manager.createPool(...params);
+    const tx = await manager.createPool721(...params);
     const receipt = await tx.wait();
     expect(await manager.pools(0)).to.eq(receipt.events[receipt.events.length - 1].args.pool_);
   });

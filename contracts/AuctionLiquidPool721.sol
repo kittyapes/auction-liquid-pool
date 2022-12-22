@@ -17,7 +17,7 @@ import "./libraries/DecimalMath.sol";
 import "./AuctionLiquidPoolManager.sol";
 import "./maNFT.sol";
 
-contract AuctionLiquidPool is
+contract AuctionLiquidPool721 is
     OwnableUpgradeable,
     ERC721HolderUpgradeable,
     ReentrancyGuardUpgradeable,
@@ -30,7 +30,9 @@ contract AuctionLiquidPool is
     using EnumerableSetUpgradeable for EnumerableSetUpgradeable.Bytes32Set;
 
     event RedeemRequested(address indexed account, bytes32[] requestIds);
-    event SwapRequested(address indexed account, bytes32 requestId);
+    event SwapRequested(address indexed account, uint256 tokenId, bytes32 requestId);
+    event Redeemed(address indexed account, bytes32 requestId, uint256 tokenId);
+    event Swaped(address indexed account, bytes32 requestId, uint256 tokenId);
 
     // keyHash being used for chainlink vrf coordinate
     bytes32 private keyHash;
@@ -140,7 +142,7 @@ contract AuctionLiquidPool is
 
         requestId = requestRandomness(keyHash, fee);
         swaps[requestId] = tokenId;
-        emit SwapRequested(msg.sender, requestId);
+        emit SwapRequested(msg.sender, tokenId, requestId);
     }
 
     /**
@@ -154,12 +156,14 @@ contract AuctionLiquidPool is
         if (redeemers[requestId] != address(0)) {
             requestor = redeemers[requestId];
             delete redeemers[requestId];
+            emit Redeemed(requestor, requestId, tokenId);
         } else if (swaps[requestId] > 0) {
             requestor = IERC721Upgradeable(nft).ownerOf(swaps[requestId]);
             IERC721Upgradeable(nft).safeTransferFrom(requestor, address(this), swaps[requestId]);
             tokenIds.add(swaps[requestId]);
             freeTokenIds.add(swaps[requestId]);
             delete swaps[requestId];
+            emit Swaped(requestor, requestId, tokenId);
         } else {
             revert("Pool: INVALID_REQUEST_ID");
         }
@@ -265,6 +269,13 @@ contract AuctionLiquidPool is
             IERC20Upgradeable(manager.token()).safeTransferFrom(msg.sender, address(this), ratio);
         }
         auction.winner = msg.sender;
+    }
+
+    function getTokenIds() external view returns (uint256[] memory tokenIds_) {
+        tokenIds_ = new uint256[](tokenIds.length());
+        unchecked {
+            for (uint256 i; i < tokenIds_.length; i += 1) tokenIds_[i] = tokenIds.at(i);
+        }
     }
 
     function recover() external onlyOwner {

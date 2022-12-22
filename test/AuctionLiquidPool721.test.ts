@@ -4,7 +4,7 @@ import { BigNumber, Contract, utils } from 'ethers';
 import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers';
 import { increaseTime } from './utils';
 
-describe('Auction Liquid Pool', function () {
+describe('Auction Liquid Pool 721', function () {
   let owner: SignerWithAddress;
   let alice: SignerWithAddress;
   let bob: SignerWithAddress;
@@ -23,17 +23,20 @@ describe('Auction Liquid Pool', function () {
     coordinator = await VRFCoordinatorFactory.deploy(link.address);
 
     const maNFTFactory = await ethers.getContractFactory('maNFT');
-    const MockNFTFactory = await ethers.getContractFactory('MockNFT');
+    const Mock721NFTFactory = await ethers.getContractFactory('Mock721NFT');
     maNFT = await maNFTFactory.deploy();
-    nft = await MockNFTFactory.deploy();
+    nft = await Mock721NFTFactory.deploy();
 
-    const AuctionLiquidPoolFactory = await ethers.getContractFactory('AuctionLiquidPool');
+    const AuctionLiquidPool721Factory = await ethers.getContractFactory('AuctionLiquidPool721');
     const AuctionLiquidPoolManagerFactory = await ethers.getContractFactory(
       'AuctionLiquidPoolManager',
     );
     manager = await AuctionLiquidPoolManagerFactory.deploy(maNFT.address);
-    const poolTemplate = await AuctionLiquidPoolFactory.deploy(coordinator.address, link.address);
-    await manager.setPoolTemplate(poolTemplate.address);
+    const poolTemplate = await AuctionLiquidPool721Factory.deploy(
+      coordinator.address,
+      link.address,
+    );
+    await manager.setPool721Template(poolTemplate.address);
 
     await nft.mint(4);
     await nft.setApprovalForAll(manager.address, true);
@@ -50,9 +53,9 @@ describe('Auction Liquid Pool', function () {
       10,
       utils.parseEther('0.1'),
     ];
-    const tx = await manager.createPool(...params);
+    const tx = await manager.createPool721(...params);
     const receipt = await tx.wait();
-    pool = await AuctionLiquidPoolFactory.attach(
+    pool = await AuctionLiquidPool721Factory.attach(
       receipt.events[receipt.events.length - 1].args.pool_,
     );
     await maNFT.mint(owner.address, utils.parseEther('100'));
