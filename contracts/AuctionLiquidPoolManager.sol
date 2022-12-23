@@ -7,35 +7,11 @@ import "@openzeppelin/contracts/proxy/Clones.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
 
+import "./interfaces/IAuctionLiquidPoolManager.sol";
 import "./AuctionLiquidPool721.sol";
 import "./AuctionLiquidPool1155.sol";
 
-struct PoolParams {
-    // owner of the pool
-    address owner;
-    // nft contract address
-    address nft;
-    // nft locking period
-    uint256 lockPeriod;
-    // auction period
-    uint256 duration;
-    // target nfts to lock
-    uint256[] tokenIds;
-    // price curve type - true: linear, false: exponential
-    bool isLinear;
-    /**
-        if linear, price difference
-        if exponential, price difference in percentage
-     */
-    uint256 delta;
-    // maNFT ratio, e.g. 1:1, 1:100
-    uint256 ratio;
-    uint256 randomFee;
-    uint256 tradingFee;
-    uint256 startPrice;
-}
-
-contract AuctionLiquidPoolManager is Ownable {
+contract AuctionLiquidPoolManager is IAuctionLiquidPoolManager, Ownable {
     address public pool721Template;
     address public pool1155Template;
     address public token;
@@ -162,6 +138,14 @@ contract AuctionLiquidPoolManager is Ownable {
     function setPool1155Template(address poolTemplate_) external onlyOwner {
         require(poolTemplate_ != address(0), "PoolManager: 0x0");
         pool1155Template = poolTemplate_;
+    }
+
+    function mToken() external view override returns (IERC20Upgradeable) {
+        return IERC20Upgradeable(token);
+    }
+
+    function maToken() external view override returns (maNFT) {
+        return maNFT(token);
     }
 
     function _getType(address collection) private view returns (uint8) {

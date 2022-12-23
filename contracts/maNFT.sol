@@ -28,7 +28,7 @@ contract maNFT is Ownable, ERC20("maNFT", "maNFT") {
         _burn(from, amount);
     }
 
-    function setWhitelsited(address pool, bool approved) external onlyOwner {
+    function setWhitelisted(address pool, bool approved) external onlyOwner {
         require(pool != address(0), "maNFT: INVALID_ADDRESS");
         whitelisted[pool] = approved;
     }
