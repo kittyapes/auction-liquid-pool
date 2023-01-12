@@ -4,18 +4,21 @@ pragma solidity 0.8.17;
 
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
-import "@chainlink/contracts/src/v0.8/VRFConsumerBase.sol";
+import "@openzeppelin/contracts/proxy/Clones.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import "./interfaces/IAuctionLiquidPoolManager.sol";
+import "./interfaces/IMappingToken.sol";
+import "./interfaces/IBaseAuctionLiquidPool.sol";
+import "./chainlink/VRFConsumerBaseUpgradeable.sol";
 
 abstract contract BaseAuctionLiquidPool is
+    IBaseAuctionLiquidPool,
     OwnableUpgradeable,
     ReentrancyGuardUpgradeable,
-    VRFConsumerBase
+    VRFConsumerBaseUpgradeable
 {
-    using SafeERC20Upgradeable for IERC20Upgradeable;
+    using SafeERC20 for IERC20;
 
     event RedeemRequested(address indexed account, bytes32[] requestIds);
     event SwapRequested(address indexed account, uint256 tokenId, bytes32 requestId);
@@ -27,8 +30,8 @@ abstract contract BaseAuctionLiquidPool is
     // LINK token amount charging for fee
     uint256 internal fee;
 
-    IAuctionLiquidPoolManager public manager;
-
+    address public dexToken;
+    address public mappingToken;
     address public nft;
     uint256 public createdAt;
     uint256 public lockPeriod;
@@ -56,24 +59,29 @@ abstract contract BaseAuctionLiquidPool is
     }
     mapping(uint256 => Auction) public auctions;
 
-    constructor(address coordinator, address link)
-        VRFConsumerBase(coordinator, link)
-    // 0x271682DEB8C4E0901D1a1550aD2e64D568E69909, // VRF Coordinator Etherscan
-    // 0x514910771AF9Ca656af840dff83E8264EcF986CA // LINK Token Etherscan
-    {
-        keyHash = 0x0476f9a745b61ea5c0ab224d3a6e4c99f0b02fce4da01143a4f70aa80ae76e8a;
-        fee = 1e17; // 0.1 LINK
+    function __BaseAuctionLiquidPool_init(
+        address coordinator,
+        address link,
+        address token,
+        address mToken,
+        PoolParams memory params
+    ) internal onlyInitializing {
+        __Ownable_init();
+        __ReentrancyGuard_init();
+        __VRFConsumerBase_init(coordinator, link);
+        // Etherscan
+        // 0x271682DEB8C4E0901D1a1550aD2e64D568E69909, // VRF Coordinator Etherscan
+        // 0x514910771AF9Ca656af840dff83E8264EcF986CA // LINK Token Etherscan
+
+        keyHash = 0x79d3d8832d904592c0bf9818b621522c988bb8b0c05cdc3b15aea1b6e8db0c15;
+        fee = 25e17; // 0.25 LINK
 
         // Etherscan
         // keyHash = 0x8af398995b04c28e9951adb9721ef74c74f93e6a478f39e7e0777be13527e7ef;
         // fee = 1e14; // 0.0001 LINK
-    }
 
-    function __BaseAuctionLiquidPool_init(PoolParams memory params) internal onlyInitializing {
-        __Ownable_init();
-        __ReentrancyGuard_init();
-
-        manager = IAuctionLiquidPoolManager(msg.sender);
+        dexToken = token;
+        mappingToken = mToken;
         nft = params.nft;
         lockPeriod = params.lockPeriod;
         duration = params.duration;
@@ -143,7 +151,7 @@ abstract contract BaseAuctionLiquidPool is
         payable(owner()).transfer(address(this).balance);
     }
 
-    function recoverTokens(IERC20Upgradeable token) external onlyOwner {
+    function recoverTokens(IERC20 token) external onlyOwner {
         token.safeTransfer(owner(), token.balanceOf(address(this)));
     }
 

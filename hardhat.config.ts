@@ -11,6 +11,9 @@ export default {
   networks: {
     hardhat: {
       initialBaseFeePerGas: 0,
+      forking: {
+        url: `https://goerli.infura.io/v3/${process.env.INFURA_KEY}`,
+      },
     },
     mainnet: {
       url: `https://mainnet.infura.io/v3/${process.env.INFURA_KEY}`,
@@ -35,7 +38,7 @@ export default {
     apiKey: process.env.API_KEY,
   },
   solidity: {
-    compilers: [{ version: '0.8.17' }, { version: '0.4.24' }],
+    compilers: [{ version: '0.8.17' }, { version: '0.4.24' }, { version: '0.5.16' }],
     settings: {
       optimizer: {
         enabled: true,

@@ -2,18 +2,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.17;
 
-import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
-import "@openzeppelin/contracts-upgradeable/token/ERC1155/IERC1155Upgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC1155/utils/ERC1155HolderUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/structs/EnumerableSetUpgradeable.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
 
 import "./BaseAuctionLiquidPool.sol";
 import "./libraries/DecimalMath.sol";
 
 contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeable {
     using DecimalMath for uint256;
-    using SafeERC20Upgradeable for IERC20Upgradeable;
+    using SafeERC20 for IERC20;
     using EnumerableSetUpgradeable for EnumerableSetUpgradeable.UintSet;
     using EnumerableSetUpgradeable for EnumerableSetUpgradeable.Bytes32Set;
 
@@ -26,10 +26,14 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
         _;
     }
 
-    constructor(address coordinator, address link) BaseAuctionLiquidPool(coordinator, link) {}
-
-    function initialize(PoolParams memory params) public initializer {
-        __BaseAuctionLiquidPool_init(params);
+    function initialize(
+        address coordinator,
+        address link,
+        address token,
+        address mToken,
+        PoolParams memory params
+    ) public initializer {
+        __BaseAuctionLiquidPool_init(coordinator, link, token, mToken, params);
         __ERC1155Holder_init();
 
         for (uint256 i; i < params.tokenIds.length; i += 1) {
@@ -63,7 +67,7 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
      * requested random number will be retrieved by following {fulfillRandomness}
      */
     function swap(uint256 tokenId) external override returns (bytes32 requestId) {
-        require(IERC1155Upgradeable(nft).balanceOf(msg.sender, tokenId) > 0, "Pool: NOT_OWNER");
+        require(IERC1155(nft).balanceOf(msg.sender, tokenId) > 0, "Pool: NOT_OWNER");
         require(block.timestamp < createdAt + lockPeriod, "Pool: NFTS_UNLOCKED");
         require(LINK.balanceOf(address(this)) >= fee, "Pool: INSUFFICIENT_LINK");
         require(freeTokenIds.length() > 0, "Pool: NO_FREE_NFTS");
@@ -88,13 +92,7 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
             emit Redeemed(requestor, requestId, tokenId);
         } else if (swaps[requestId] > 0) {
             requestor = swapper[requestId];
-            IERC1155Upgradeable(nft).safeTransferFrom(
-                requestor,
-                address(this),
-                swaps[requestId],
-                1,
-                ""
-            );
+            IERC1155(nft).safeTransferFrom(requestor, address(this), swaps[requestId], 1, "");
             tokenIds.add(swaps[requestId]);
             freeTokenIds.add(swaps[requestId]);
             delete swaps[requestId];
@@ -107,8 +105,8 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
         tokenIds.remove(tokenId);
         freeTokenIds.remove(tokenId);
         pendingRequests.remove(requestId);
-        manager.maToken().burn(requestor, ratio);
-        IERC1155Upgradeable(nft).safeTransferFrom(address(this), requestor, tokenId, 1, "");
+        IMappingToken(mappingToken).burnFrom(requestor, ratio);
+        IERC1155(nft).safeTransferFrom(address(this), requestor, tokenId, 1, "");
     }
 
     /**
@@ -124,14 +122,8 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
 
             if (auction.bidAmount > 0) {
                 tokenIds.remove(tokenId);
-                manager.maToken().burn(address(this), ratio);
-                IERC1155Upgradeable(nft).safeTransferFrom(
-                    address(this),
-                    auction.winner,
-                    tokenId,
-                    1,
-                    ""
-                );
+                IMappingToken(mappingToken).burnFrom(address(this), ratio);
+                IERC1155(nft).safeTransferFrom(address(this), auction.winner, tokenId, 1, "");
             } else freeTokenIds.add(tokenId);
             payable(owner()).transfer(auction.bidAmount);
         }
@@ -158,14 +150,8 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
         delete auctions[tokenId];
         if (auction.bidAmount > 0) {
             tokenIds.remove(tokenId);
-            manager.maToken().burn(address(this), ratio);
-            IERC1155Upgradeable(nft).safeTransferFrom(
-                address(this),
-                auction.winner,
-                tokenId,
-                1,
-                ""
-            );
+            IMappingToken(mappingToken).burnFrom(address(this), ratio);
+            IERC1155(nft).safeTransferFrom(address(this), auction.winner, tokenId, 1, "");
         } else freeTokenIds.add(tokenId);
         payable(owner()).transfer(auction.bidAmount);
     }
@@ -183,7 +169,7 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
         freeTokenIds.add(tokenId);
         if (auction.bidAmount > 0) {
             payable(auction.winner).transfer(auction.bidAmount);
-            manager.mToken().safeTransfer(auction.winner, ratio);
+            IERC20(mappingToken).safeTransfer(auction.winner, ratio);
         }
     }
 
@@ -202,7 +188,7 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
         require(msg.value >= startPrice, "Pool: TOO_LOW_BID");
 
         if (auction.bidAmount == 0) {
-            manager.mToken().safeTransferFrom(msg.sender, address(this), ratio);
+            IERC20(mappingToken).safeTransferFrom(msg.sender, address(this), ratio);
             auction.bidAmount = msg.value;
             // if (msg.value > startPrice) payable(msg.sender).transfer(msg.value - startPrice);
         } else {
@@ -213,8 +199,8 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
             if (msg.value > nextBidAmount) payable(msg.sender).transfer(msg.value - nextBidAmount);
             auction.bidAmount = nextBidAmount;
 
-            manager.mToken().transfer(auction.winner, ratio);
-            manager.mToken().safeTransferFrom(msg.sender, address(this), ratio);
+            IERC20(mappingToken).transfer(auction.winner, ratio);
+            IERC20(mappingToken).safeTransferFrom(msg.sender, address(this), ratio);
         }
         auction.winner = msg.sender;
     }
@@ -228,11 +214,11 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
 
     function recoverNFTs() external override onlyOwner {
         for (uint256 i; i < tokenIds.length(); i += 1)
-            IERC1155Upgradeable(nft).safeTransferFrom(
+            IERC1155(nft).safeTransferFrom(
                 address(this),
                 owner(),
                 tokenIds.at(i),
-                IERC1155Upgradeable(nft).balanceOf(address(this), tokenIds.at(i)),
+                IERC1155(nft).balanceOf(address(this), tokenIds.at(i)),
                 ""
             );
     }

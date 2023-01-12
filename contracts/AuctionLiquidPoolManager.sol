@@ -2,26 +2,41 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.17;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts/proxy/Clones.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
+import "@uniswap/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
+import "@uniswap/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 
-import "./interfaces/IAuctionLiquidPoolManager.sol";
-import "./AuctionLiquidPool721.sol";
-import "./AuctionLiquidPool1155.sol";
+import "./interfaces/IAuctionLiquidPool.sol";
+import "./interfaces/IMappingToken.sol";
 
-contract AuctionLiquidPoolManager is IAuctionLiquidPoolManager, Ownable {
+contract AuctionLiquidPoolManager is IBaseAuctionLiquidPool, OwnableUpgradeable {
+    address private constant UNIV2_FACTORY = 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f;
+    address private constant UNIV2_ROUTER = 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D;
+
+    address public vrfCoordinator;
+    address public linkToken;
+    address public dexToken;
+
+    address public mTokenTemplate;
     address public pool721Template;
     address public pool1155Template;
-    address public token;
     address[] public pools;
 
     event PoolCreated(address indexed owner_, address indexed pool_, address poolTemplate_);
 
-    constructor(address token_) {
-        require(token_ != address(0), "PoolManager: TOKEN_0x0");
-        token = token_;
+    function initialize(
+        address coordinator,
+        address link,
+        address token
+    ) public initializer {
+        __Ownable_init();
+
+        vrfCoordinator = coordinator;
+        linkToken = link;
+        dexToken = token;
     }
 
     /**
@@ -29,99 +44,75 @@ contract AuctionLiquidPoolManager is IAuctionLiquidPoolManager, Ownable {
      * @dev only nft owners can call this function to lock their own nfts
      * @return poolAddress address of generated pool
      */
-    function createPool721(
-        address nft_,
-        uint256 lockPeriod_,
-        uint256 duration_,
-        uint256[] calldata tokenIds_,
-        bool isLinear_,
-        uint256 delta_,
-        uint256 ratio_,
-        uint256 randomFee_,
-        uint256 tradingFee_,
-        uint256 startPrice_
-    ) external returns (address poolAddress) {
-        require(pool721Template != address(0), "PoolManager: MISSING_VAULT_TEMPLATE");
-        require(tokenIds_.length > 0, "PoolManager: INFOS_MISSING");
+    function createPool(PoolParams memory params) external returns (address poolAddress) {
+        require(mTokenTemplate != address(0), "PoolManager: TOKEN_TEMPLATE_UNSET");
+        uint256 cType = _getType(params.nft);
+        require(cType > 0, "PoolManager: INVALID_NFT_ADDRESS");
 
-        uint256 cType = _getType(nft_);
-        require(cType == 1, "PoolManager: INVALID_NFT_ADDRESS");
+        uint256 amount = params.tokenIds.length * 1e18;
+        string memory symbol = string(abi.encodePacked("MT_", params.name));
+        address mTokenAddress = Clones.clone(mTokenTemplate);
+        IMappingToken mToken = IMappingToken(mTokenAddress);
+        mToken.initialize(params.name, symbol, amount);
+        mToken.setPair(IUniswapV2Factory(UNIV2_FACTORY).createPair(mTokenAddress, dexToken));
+        mToken.transferOwnership(msg.sender);
 
-        poolAddress = Clones.clone(pool721Template);
-        PoolParams memory params = PoolParams(
+        mToken.approve(UNIV2_ROUTER, amount);
+        IMappingToken(dexToken).approve(UNIV2_ROUTER, amount);
+        IUniswapV2Router01(UNIV2_ROUTER).addLiquidity(
+            mTokenAddress,
+            dexToken,
+            amount,
+            amount,
+            0,
+            0,
             msg.sender,
-            nft_,
-            lockPeriod_,
-            duration_,
-            tokenIds_,
-            isLinear_,
-            delta_,
-            ratio_,
-            randomFee_,
-            tradingFee_,
-            startPrice_
+            block.timestamp + 1000
         );
-        AuctionLiquidPool721 pool = AuctionLiquidPool721(poolAddress);
-        pool.initialize(params);
-        pool.transferOwnership(msg.sender);
+
+        params.owner = msg.sender;
+        if (cType == 1) {
+            require(pool721Template != address(0), "PoolManager: 721_TEMPLATE_UNSET");
+            poolAddress = Clones.clone(pool721Template);
+            IAuctionLiquidPool pool = IAuctionLiquidPool(poolAddress);
+            pool.initialize(vrfCoordinator, linkToken, dexToken, mTokenAddress, params);
+            pool.transferOwnership(msg.sender);
+
+            for (uint256 i; i < params.tokenIds.length; i += 1)
+                IERC721(params.nft).safeTransferFrom(msg.sender, poolAddress, params.tokenIds[i]);
+        } else {
+            require(pool1155Template != address(0), "PoolManager: 1155_TEMPLATE_UNSET");
+            poolAddress = Clones.clone(pool1155Template);
+            IAuctionLiquidPool pool = IAuctionLiquidPool(poolAddress);
+            pool.initialize(vrfCoordinator, linkToken, dexToken, mTokenAddress, params);
+            pool.transferOwnership(msg.sender);
+
+            for (uint256 i; i < params.tokenIds.length; i += 1)
+                IERC1155(params.nft).safeTransferFrom(
+                    msg.sender,
+                    poolAddress,
+                    params.tokenIds[i],
+                    1,
+                    ""
+                );
+        }
+
         pools.push(poolAddress);
-
-        for (uint256 i; i < params.tokenIds.length; i += 1)
-            IERC721(nft_).safeTransferFrom(msg.sender, poolAddress, params.tokenIds[i]);
-
-        emit PoolCreated(msg.sender, poolAddress, pool721Template);
+        emit PoolCreated(msg.sender, poolAddress, [pool721Template, pool1155Template][cType - 1]);
     }
 
     /**
-     * @notice create pool contract locking nfts
-     * @dev only nft owners can call this function to lock their own nfts
-     * @return poolAddress address of generated pool
+     * @notice set token template
+     * @dev only manager contract owner can call this function
+     * @param tokenTemplate_ new token template address
      */
-    function createPool1155(
-        address nft_,
-        uint256 lockPeriod_,
-        uint256 duration_,
-        uint256[] calldata tokenIds_,
-        bool isLinear_,
-        uint256 delta_,
-        uint256 ratio_,
-        uint256 randomFee_,
-        uint256 tradingFee_,
-        uint256 startPrice_
-    ) external returns (address poolAddress) {
-        require(pool1155Template != address(0), "PoolManager: MISSING_VAULT_TEMPLATE");
-        require(tokenIds_.length > 0, "PoolManager: INFOS_MISSING");
-
-        uint256 cType = _getType(nft_);
-        require(cType == 2, "PoolManager: INVALID_NFT_ADDRESS");
-
-        poolAddress = Clones.clone(pool1155Template);
-        PoolParams memory params = PoolParams(
-            msg.sender,
-            nft_,
-            lockPeriod_,
-            duration_,
-            tokenIds_,
-            isLinear_,
-            delta_,
-            ratio_,
-            randomFee_,
-            tradingFee_,
-            startPrice_
-        );
-        AuctionLiquidPool1155 pool = AuctionLiquidPool1155(poolAddress);
-        pool.initialize(params);
-        pool.transferOwnership(msg.sender);
-        pools.push(poolAddress);
-
-        for (uint256 i; i < params.tokenIds.length; i += 1)
-            IERC1155(nft_).safeTransferFrom(msg.sender, poolAddress, params.tokenIds[i], 1, "");
-
-        emit PoolCreated(msg.sender, poolAddress, pool1155Template);
+    function setTokenTemplate(address tokenTemplate_) external onlyOwner {
+        require(tokenTemplate_ != address(0), "PoolManager: 0x0");
+        mTokenTemplate = tokenTemplate_;
     }
 
     /**
-     * @notice set pool template
+     * @notice set 721 pool template
      * @dev only manager contract owner can call this function
      * @param poolTemplate_ new template address
      */
@@ -131,21 +122,13 @@ contract AuctionLiquidPoolManager is IAuctionLiquidPoolManager, Ownable {
     }
 
     /**
-     * @notice set pool template
+     * @notice set 1155 pool template
      * @dev only manager contract owner can call this function
      * @param poolTemplate_ new template address
      */
     function setPool1155Template(address poolTemplate_) external onlyOwner {
         require(poolTemplate_ != address(0), "PoolManager: 0x0");
         pool1155Template = poolTemplate_;
-    }
-
-    function mToken() external view override returns (IERC20Upgradeable) {
-        return IERC20Upgradeable(token);
-    }
-
-    function maToken() external view override returns (maNFT) {
-        return maNFT(token);
     }
 
     function _getType(address collection) private view returns (uint8) {

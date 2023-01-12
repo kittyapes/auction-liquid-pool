@@ -1,5 +1,5 @@
 import { expect } from 'chai';
-import { ethers } from 'hardhat';
+import { ethers, upgrades } from 'hardhat';
 import { BigNumber, Contract, utils } from 'ethers';
 import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers';
 import { increaseTime } from './utils';
@@ -10,38 +10,39 @@ describe('Auction Liquid Pool 1155', function () {
   let bob: SignerWithAddress;
   let manager: Contract;
   let pool: Contract;
-  let maNFT: Contract;
+  let mappingToken: Contract;
   let nft: Contract;
   let coordinator: Contract;
 
   beforeEach(async () => {
     [owner, alice, bob] = await ethers.getSigners();
 
-    const LinkFactory = await ethers.getContractFactory('LinkToken');
     const VRFCoordinatorFactory = await ethers.getContractFactory('VRFCoordinatorMock');
+    const LinkFactory = await ethers.getContractFactory('LinkToken');
     const link = await LinkFactory.deploy();
-    coordinator = await VRFCoordinatorFactory.deploy(link.address);
+    const coordinator = await VRFCoordinatorFactory.deploy(link.address);
 
-    const maNFTFactory = await ethers.getContractFactory('maNFT');
+    const MockTokenFactory = await ethers.getContractFactory('MockToken');
     const Mock1155NFTFactory = await ethers.getContractFactory('Mock1155NFT');
-    maNFT = await maNFTFactory.deploy();
+    const dexToken = await MockTokenFactory.deploy();
     nft = await Mock1155NFTFactory.deploy();
 
+    const MappingTokenFactory = await ethers.getContractFactory('MappingToken');
     const AuctionLiquidPool1155Factory = await ethers.getContractFactory('AuctionLiquidPool1155');
     const AuctionLiquidPoolManagerFactory = await ethers.getContractFactory(
       'AuctionLiquidPoolManager',
     );
-    manager = await AuctionLiquidPoolManagerFactory.deploy(maNFT.address);
-    const poolTemplate = await AuctionLiquidPool1155Factory.deploy(
+    manager = await upgrades.deployProxy(AuctionLiquidPoolManagerFactory, [
       coordinator.address,
       link.address,
-    );
-    await manager.setPool1155Template(poolTemplate.address);
-
+      dexToken.address,
+    ]);
     await nft.batchMint([0, 1, 2, 3], [1, 1, 1, 1]);
     await nft.setApprovalForAll(manager.address, true);
 
     const params = [
+      'HypeX',
+      '',
       nft.address,
       86400 * 7,
       86400,
@@ -53,17 +54,18 @@ describe('Auction Liquid Pool 1155', function () {
       10,
       utils.parseEther('0.1'),
     ];
-    const tx = await manager.createPool1155(...params);
+    const tx = await manager.createPool(...params);
     const receipt = await tx.wait();
     pool = await AuctionLiquidPool1155Factory.attach(
       receipt.events[receipt.events.length - 1].args.pool_,
     );
-    await maNFT.mint(owner.address, utils.parseEther('100'));
-    await maNFT.mint(alice.address, utils.parseEther('100'));
-    await maNFT.mint(bob.address, utils.parseEther('100'));
-    await maNFT.connect(owner).approve(pool.address, utils.parseEther('100'));
-    await maNFT.connect(alice).approve(pool.address, utils.parseEther('100'));
-    await maNFT.connect(bob).approve(pool.address, utils.parseEther('100'));
+    mappingToken = await MappingTokenFactory.attach(await pool.mappingToken());
+    await mappingToken.mint(owner.address, utils.parseEther('100'));
+    await mappingToken.mint(alice.address, utils.parseEther('100'));
+    await mappingToken.mint(bob.address, utils.parseEther('100'));
+    await mappingToken.connect(owner).approve(pool.address, utils.parseEther('100'));
+    await mappingToken.connect(alice).approve(pool.address, utils.parseEther('100'));
+    await mappingToken.connect(bob).approve(pool.address, utils.parseEther('100'));
     await link.transfer(pool.address, utils.parseEther('1'));
     await nft.setApprovalForAll(pool.address, true);
 
