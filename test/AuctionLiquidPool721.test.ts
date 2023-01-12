@@ -4,7 +4,7 @@ import { BigNumber, constants, Contract, utils } from 'ethers';
 import { SignerWithAddress } from '@nomiclabs/hardhat-ethers/signers';
 import { increaseTime } from './utils';
 
-describe.only('Auction Liquid Pool 721', function () {
+describe('Auction Liquid Pool 721', function () {
   let owner: SignerWithAddress;
   let alice: SignerWithAddress;
   let bob: SignerWithAddress;
@@ -19,7 +19,7 @@ describe.only('Auction Liquid Pool 721', function () {
     const VRFCoordinatorFactory = await ethers.getContractFactory('VRFCoordinatorMock');
     const LinkFactory = await ethers.getContractFactory('LinkToken');
     const link = await LinkFactory.deploy();
-    const coordinator = await VRFCoordinatorFactory.deploy(link.address);
+    coordinator = await VRFCoordinatorFactory.deploy(link.address);
 
     const DexTokenFactory = await ethers.getContractFactory('DexToken');
     const Mock721NFTFactory = await ethers.getContractFactory('Mock721NFT');
@@ -72,7 +72,7 @@ describe.only('Auction Liquid Pool 721', function () {
     await mappingToken.connect(owner).approve(pool.address, utils.parseEther('100'));
     await mappingToken.connect(alice).approve(pool.address, utils.parseEther('100'));
     await mappingToken.connect(bob).approve(pool.address, utils.parseEther('100'));
-    await link.transfer(pool.address, utils.parseEther('1'));
+    await link.transfer(pool.address, utils.parseEther('10'));
     await nft.setApprovalForAll(pool.address, true);
 
     await pool.startAuction(0);
@@ -106,7 +106,7 @@ describe.only('Auction Liquid Pool 721', function () {
     const tx = await pool.connect(owner).redeem(1);
     const receipt = await tx.wait();
     const requestId = receipt.events[receipt.events.length - 1].args.requestIds[0];
-    await coordinator.callBackWithRandomness(requestId, '123456', pool.address);
+    await coordinator.callBackWithRandomness(requestId, 123456, pool.address);
     expect(await nft.ownerOf(2)).to.eq(owner.address);
   });
 
@@ -114,7 +114,7 @@ describe.only('Auction Liquid Pool 721', function () {
     const tx = await pool.connect(owner).swap(3);
     const receipt = await tx.wait();
     const requestId = receipt.events[receipt.events.length - 1].args.requestId;
-    await coordinator.callBackWithRandomness(requestId, '123456', pool.address);
+    await coordinator.callBackWithRandomness(requestId, 123456, pool.address);
     expect(await nft.ownerOf(3)).to.eq(pool.address);
     expect(await nft.ownerOf(2)).to.eq(owner.address);
   });
