@@ -86,15 +86,16 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
     function fulfillRandomness(bytes32 requestId, uint256 randomness) internal override {
         address requestor;
         uint256 tokenId = freeTokenIds.at(randomness % freeTokenIds.length());
+        uint256 swapId = swaps[requestId];
         if (redeemers[requestId] != address(0)) {
             requestor = redeemers[requestId];
             delete redeemers[requestId];
             emit Redeemed(requestor, requestId, tokenId);
-        } else if (swaps[requestId] > 0) {
+        } else if (swapId > 0) {
             requestor = swapper[requestId];
-            IERC1155(nft).safeTransferFrom(requestor, address(this), swaps[requestId], 1, "");
-            tokenIds.add(swaps[requestId]);
-            freeTokenIds.add(swaps[requestId]);
+            IERC1155(nft).safeTransferFrom(requestor, address(this), swapId, 1, "");
+            tokenIds.add(swapId);
+            freeTokenIds.add(swapId);
             delete swaps[requestId];
             delete swapper[requestId];
             emit Swaped(requestor, requestId, tokenId);
@@ -105,7 +106,7 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
         tokenIds.remove(tokenId);
         freeTokenIds.remove(tokenId);
         pendingRequests.remove(requestId);
-        IMappingToken(mappingToken).burnFrom(requestor, ratio);
+        _distributeFee(requestor);
         IERC1155(nft).safeTransferFrom(address(this), requestor, tokenId, 1, "");
     }
 

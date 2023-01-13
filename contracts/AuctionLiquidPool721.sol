@@ -85,15 +85,16 @@ contract AuctionLiquidPool721 is BaseAuctionLiquidPool, ERC721HolderUpgradeable 
     function fulfillRandomness(bytes32 requestId, uint256 randomness) internal override {
         address requestor;
         uint256 tokenId = freeTokenIds.at(randomness % freeTokenIds.length());
+        uint256 swapId = swaps[requestId];
         if (redeemers[requestId] != address(0)) {
             requestor = redeemers[requestId];
             delete redeemers[requestId];
             emit Redeemed(requestor, requestId, tokenId);
-        } else if (swaps[requestId] > 0) {
-            requestor = IERC721(nft).ownerOf(swaps[requestId]);
-            IERC721(nft).safeTransferFrom(requestor, address(this), swaps[requestId]);
-            tokenIds.add(swaps[requestId]);
-            freeTokenIds.add(swaps[requestId]);
+        } else if (swapId > 0) {
+            requestor = IERC721(nft).ownerOf(swapId);
+            IERC721(nft).safeTransferFrom(requestor, address(this), swapId);
+            tokenIds.add(swapId);
+            freeTokenIds.add(swapId);
             delete swaps[requestId];
             emit Swaped(requestor, requestId, tokenId);
         } else {
@@ -103,7 +104,7 @@ contract AuctionLiquidPool721 is BaseAuctionLiquidPool, ERC721HolderUpgradeable 
         tokenIds.remove(tokenId);
         freeTokenIds.remove(tokenId);
         pendingRequests.remove(requestId);
-        IMappingToken(mappingToken).burnFrom(requestor, ratio);
+        _distributeFee(requestor);
         IERC721(nft).safeTransferFrom(address(this), requestor, tokenId);
     }
 

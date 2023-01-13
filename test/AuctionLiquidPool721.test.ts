@@ -11,6 +11,7 @@ describe('Auction Liquid Pool 721', function () {
 
   let pool: Contract;
   let nft: Contract;
+  let mappingToken: Contract;
   let coordinator: Contract;
 
   beforeEach(async () => {
@@ -59,13 +60,15 @@ describe('Auction Liquid Pool 721', function () {
       50,
       10,
       utils.parseEther('0.1'),
+      [0],
+      [1000],
     ];
     const tx = await manager.createPool(params);
     const receipt = await tx.wait();
     pool = await AuctionLiquidPool721Factory.attach(
       receipt.events[receipt.events.length - 1].args.pool_,
     );
-    const mappingToken = await MappingTokenFactory.attach(await pool.mappingToken());
+    mappingToken = await MappingTokenFactory.attach(await pool.mappingToken());
     await mappingToken.mint(owner.address, utils.parseEther('100'));
     await mappingToken.mint(alice.address, utils.parseEther('100'));
     await mappingToken.mint(bob.address, utils.parseEther('100'));
@@ -103,19 +106,37 @@ describe('Auction Liquid Pool 721', function () {
   });
 
   it('#redeem', async () => {
-    const tx = await pool.connect(owner).redeem(1);
+    const tx = await pool.connect(alice).redeem(1);
     const receipt = await tx.wait();
     const requestId = receipt.events[receipt.events.length - 1].args.requestIds[0];
+    const beforeOwnerBal = await mappingToken.balanceOf(owner.address);
+    const beforeAliceBal = await mappingToken.balanceOf(alice.address);
     await coordinator.callBackWithRandomness(requestId, 123456, pool.address);
-    expect(await nft.ownerOf(2)).to.eq(owner.address);
+    expect(await nft.ownerOf(2)).to.eq(alice.address);
+    expect(beforeAliceBal.sub(await mappingToken.balanceOf(alice.address))).to.eq(
+      utils.parseEther('2'),
+    );
+    expect((await mappingToken.balanceOf(owner.address)).sub(beforeOwnerBal)).to.eq(
+      utils.parseEther('2').div(20),
+    );
   });
 
   it('#swap', async () => {
-    const tx = await pool.connect(owner).swap(3);
+    await nft.transferFrom(owner.address, alice.address, 3);
+    await nft.connect(alice).setApprovalForAll(pool.address, true);
+    const tx = await pool.connect(alice).swap(3);
     const receipt = await tx.wait();
     const requestId = receipt.events[receipt.events.length - 1].args.requestId;
+    const beforeOwnerBal = await mappingToken.balanceOf(owner.address);
+    const beforeAliceBal = await mappingToken.balanceOf(alice.address);
     await coordinator.callBackWithRandomness(requestId, 123456, pool.address);
     expect(await nft.ownerOf(3)).to.eq(pool.address);
-    expect(await nft.ownerOf(2)).to.eq(owner.address);
+    expect(await nft.ownerOf(2)).to.eq(alice.address);
+    expect(beforeAliceBal.sub(await mappingToken.balanceOf(alice.address))).to.eq(
+      utils.parseEther('2'),
+    );
+    expect((await mappingToken.balanceOf(owner.address)).sub(beforeOwnerBal)).to.eq(
+      utils.parseEther('2').div(20),
+    );
   });
 });

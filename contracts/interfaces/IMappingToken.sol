@@ -19,4 +19,6 @@ interface IMappingToken {
     function approve(address, uint256) external;
 
     function owner() external view returns (address);
+
+    function uniswapPool() external view returns (address);
 }

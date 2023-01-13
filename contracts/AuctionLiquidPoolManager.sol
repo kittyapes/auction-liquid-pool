@@ -19,6 +19,7 @@ contract AuctionLiquidPoolManager is IBaseAuctionLiquidPool, OwnableUpgradeable 
     address public vrfCoordinator;
     address public linkToken;
     address public dexToken;
+    address public treasury;
 
     address public mTokenTemplate;
     address public pool721Template;
@@ -28,15 +29,15 @@ contract AuctionLiquidPoolManager is IBaseAuctionLiquidPool, OwnableUpgradeable 
     event PoolCreated(address indexed owner_, address indexed pool_, address poolTemplate_);
 
     function initialize(
-        address coordinator,
-        address link,
-        address token
+        address coordinator_,
+        address link_,
+        address token_
     ) public initializer {
         __Ownable_init();
 
-        vrfCoordinator = coordinator;
-        linkToken = link;
-        dexToken = token;
+        vrfCoordinator = coordinator_;
+        linkToken = link_;
+        dexToken = token_;
     }
 
     /**
@@ -48,8 +49,23 @@ contract AuctionLiquidPoolManager is IBaseAuctionLiquidPool, OwnableUpgradeable 
         require(mTokenTemplate != address(0), "PoolManager: TOKEN_TEMPLATE_UNSET");
         uint256 cType = _getType(params.nft);
         require(cType > 0, "PoolManager: INVALID_NFT_ADDRESS");
+        require(
+            params.feeTypes.length == params.feeValues.length,
+            "PoolManager: MISMATCH_FEE_INFO"
+        );
 
-        uint256 amount = params.tokenIds.length * 1e18;
+        uint16 feeSum;
+        bool hasNFTHolderType;
+        unchecked {
+            for (uint256 i; i < params.feeTypes.length; i += 1) {
+                feeSum += params.feeValues[i];
+                hasNFTHolderType = hasNFTHolderType || (params.feeTypes[i] == FeeType.NFT_HOLDERS);
+            }
+        }
+        require(!hasNFTHolderType || treasury != address(0), "PoolManager: TREASURY_UNSET");
+        require(feeSum == 1000, "PoolManager: INSUFFICIENT_FEE_VALUES");
+
+        uint256 amount = params.tokenIds.length * params.ratio;
         string memory symbol = string(abi.encodePacked("MT_", params.name));
         address mTokenAddress = Clones.clone(mTokenTemplate);
         IMappingToken mToken = IMappingToken(mTokenAddress);
@@ -102,32 +118,42 @@ contract AuctionLiquidPoolManager is IBaseAuctionLiquidPool, OwnableUpgradeable 
     }
 
     /**
+     * @notice set treasury
+     * @dev only contract owner can call this function
+     * @param treasury_ new treasury address
+     */
+    function setTreasury(address treasury_) external onlyOwner {
+        require(treasury_ != address(0), "PoolManager: TREASURY_0x0");
+        treasury = treasury_;
+    }
+
+    /**
      * @notice set token template
-     * @dev only manager contract owner can call this function
+     * @dev only contract owner can call this function
      * @param tokenTemplate_ new token template address
      */
     function setTokenTemplate(address tokenTemplate_) external onlyOwner {
-        require(tokenTemplate_ != address(0), "PoolManager: 0x0");
+        require(tokenTemplate_ != address(0), "PoolManager: TOKEN_TEMPLATE_0x0");
         mTokenTemplate = tokenTemplate_;
     }
 
     /**
      * @notice set 721 pool template
-     * @dev only manager contract owner can call this function
+     * @dev only contract owner can call this function
      * @param poolTemplate_ new template address
      */
     function setPool721Template(address poolTemplate_) external onlyOwner {
-        require(poolTemplate_ != address(0), "PoolManager: 0x0");
+        require(poolTemplate_ != address(0), "PoolManager: NFT721_TEMPLATE_0x0");
         pool721Template = poolTemplate_;
     }
 
     /**
      * @notice set 1155 pool template
-     * @dev only manager contract owner can call this function
+     * @dev only contract owner can call this function
      * @param poolTemplate_ new template address
      */
     function setPool1155Template(address poolTemplate_) external onlyOwner {
-        require(poolTemplate_ != address(0), "PoolManager: 0x0");
+        require(poolTemplate_ != address(0), "PoolManager: NFT1155_TEMPLATE_0x0");
         pool1155Template = poolTemplate_;
     }
 

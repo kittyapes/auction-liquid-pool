@@ -8,8 +8,10 @@ import "@openzeppelin/contracts/proxy/Clones.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
+import "./libraries/DecimalMath.sol";
 import "./interfaces/IMappingToken.sol";
 import "./interfaces/IBaseAuctionLiquidPool.sol";
+import "./interfaces/IAuctionLiquidPoolManager.sol";
 import "./chainlink/VRFConsumerBaseUpgradeable.sol";
 
 abstract contract BaseAuctionLiquidPool is
@@ -19,6 +21,7 @@ abstract contract BaseAuctionLiquidPool is
     VRFConsumerBaseUpgradeable
 {
     using SafeERC20 for IERC20;
+    using DecimalMath for uint256;
 
     event RedeemRequested(address indexed account, bytes32[] requestIds);
     event SwapRequested(address indexed account, uint256 tokenId, bytes32 requestId);
@@ -30,18 +33,22 @@ abstract contract BaseAuctionLiquidPool is
     // LINK token amount charging for fee
     uint256 internal fee;
 
+    IAuctionLiquidPoolManager public manager;
+
     address public dexToken;
     address public mappingToken;
     address public nft;
-    uint256 public createdAt;
-    uint256 public lockPeriod;
-    uint256 public duration;
+    uint64 public createdAt;
+    uint64 public lockPeriod;
+    uint64 public duration;
     bool public isLinear;
     uint256 public delta;
     uint256 public ratio;
-    uint256 public randomFee;
-    uint256 public tradingFee;
+    uint16 public randomFee;
+    uint16 public tradingFee;
     uint256 public startPrice;
+    FeeType[] public feeTypes;
+    uint16[] public feeValues;
 
     // random request id -> redeem requester
     mapping(bytes32 => address) public redeemers;
@@ -80,6 +87,7 @@ abstract contract BaseAuctionLiquidPool is
         // keyHash = 0x8af398995b04c28e9951adb9721ef74c74f93e6a478f39e7e0777be13527e7ef;
         // fee = 1e14; // 0.0001 LINK
 
+        manager = IAuctionLiquidPoolManager(msg.sender);
         dexToken = token;
         mappingToken = mToken;
         nft = params.nft;
@@ -91,7 +99,9 @@ abstract contract BaseAuctionLiquidPool is
         randomFee = params.randomFee;
         tradingFee = params.tradingFee;
         startPrice = params.startPrice;
-        createdAt = block.timestamp;
+        createdAt = uint64(block.timestamp);
+        feeTypes = params.feeTypes;
+        feeValues = params.feeValues;
     }
 
     /**
@@ -156,4 +166,19 @@ abstract contract BaseAuctionLiquidPool is
     }
 
     function recoverNFTs() external virtual;
+
+    function _distributeFee(address account) internal {
+        uint256 totalFee = ratio.decimalMul(randomFee);
+        for (uint256 i; i < feeTypes.length; i += 1) {
+            uint256 feeAmount = totalFee.decimalMul(feeValues[i]);
+            address to;
+            if (feeTypes[i] == FeeType.PROJECT) to = owner();
+            else if (feeTypes[i] == FeeType.AMM_POOL)
+                to = IMappingToken(mappingToken).uniswapPool();
+            else if (feeTypes[i] == FeeType.NFT_HOLDERS) to = manager.treasury();
+            else to = owner();
+            IERC20(mappingToken).safeTransferFrom(account, to, feeAmount);
+        }
+        IMappingToken(mappingToken).burnFrom(account, ratio - totalFee);
+    }
 }

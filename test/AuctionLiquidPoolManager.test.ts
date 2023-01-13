@@ -52,6 +52,8 @@ describe('Auction Liquid Pool Manager', function () {
       50,
       10,
       utils.parseEther('0.01'),
+      [0],
+      [1000],
     ];
 
     const tx = await manager.createPool(params);
