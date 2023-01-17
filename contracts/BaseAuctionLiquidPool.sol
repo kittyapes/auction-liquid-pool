@@ -127,14 +127,14 @@ abstract contract BaseAuctionLiquidPool is
 
     /**
      * @notice user can redeem random NFT by paying ratio amount of maNFT
-     * @dev this will request randome number via chainlink vrf coordinator
+     * @dev this will request random number via chainlink vrf coordinator
      * requested random number will be retrieved by following {fulfillRandomness}
      */
     function redeem(uint32) external virtual returns (uint256);
 
     /**
      * @notice user can swap random NFT by paying ratio amount of maNFT
-     * @dev this will request randome number via chainlink vrf coordinator
+     * @dev this will request random number via chainlink vrf coordinator
      * requested random number will be retrieved by following {fulfillRandomness}
      */
     function swap(uint256) external virtual returns (uint256);

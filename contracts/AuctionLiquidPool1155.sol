@@ -41,7 +41,7 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
 
     /**
      * @notice user can redeem random NFT by paying ratio amount of maNFT
-     * @dev this will request randome number via chainlink vrf coordinator
+     * @dev this will request random number via chainlink vrf coordinator
      * requested random number will be retrieved by following {fulfillRandomness}
      */
     function redeem(uint32 count) external override returns (uint256 requestId) {
@@ -55,7 +55,7 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
 
     /**
      * @notice user can swap random NFT by paying ratio amount of maNFT
-     * @dev this will request randome number via chainlink vrf coordinator
+     * @dev this will request random number via chainlink vrf coordinator
      * requested random number will be retrieved by following {fulfillRandomness}
      */
     function swap(uint256 tokenId) external override returns (uint256 requestId) {

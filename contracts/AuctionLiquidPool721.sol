@@ -42,7 +42,7 @@ contract AuctionLiquidPool721 is BaseAuctionLiquidPool, ERC721HolderUpgradeable 
 
     /**
      * @notice user can redeem random NFT by paying ratio amount of maNFT
-     * @dev this will request randome number via chainlink vrf coordinator
+     * @dev this will request random number via chainlink vrf coordinator
      * requested random number will be retrieved by following {fulfillRandomWords}
      */
     function redeem(uint32 count) external override returns (uint256 requestId) {
@@ -56,7 +56,7 @@ contract AuctionLiquidPool721 is BaseAuctionLiquidPool, ERC721HolderUpgradeable 
 
     /**
      * @notice user can swap random NFT by paying ratio amount of maNFT
-     * @dev this will request randome number via chainlink vrf coordinator
+     * @dev this will request random number via chainlink vrf coordinator
      * requested random number will be retrieved by following {fulfillRandomWords}
      */
     function swap(uint256 tokenId) external override returns (uint256 requestId) {
