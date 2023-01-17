@@ -18,8 +18,6 @@ describe('Auction Liquid Pool 721', function () {
     [owner, alice, bob] = await ethers.getSigners();
 
     const VRFCoordinatorFactory = await ethers.getContractFactory('VRFCoordinatorV2Mock');
-    const LinkFactory = await ethers.getContractFactory('LinkToken');
-    const link = await LinkFactory.attach('0x326C977E6efc84E512bB9C30f76E30c160eD06FB');
     coordinator = await VRFCoordinatorFactory.deploy(utils.parseEther('0.1'), 1e9);
 
     const DexTokenFactory = await ethers.getContractFactory('DexToken');
@@ -74,7 +72,6 @@ describe('Auction Liquid Pool 721', function () {
     await mappingToken.connect(owner).approve(pool.address, utils.parseEther('100'));
     await mappingToken.connect(alice).approve(pool.address, utils.parseEther('100'));
     await mappingToken.connect(bob).approve(pool.address, utils.parseEther('100'));
-    // await link.transfer(pool.address, utils.parseEther('10'));
     await nft.setApprovalForAll(pool.address, true);
 
     await pool.startAuction(0);

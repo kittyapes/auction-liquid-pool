@@ -13,13 +13,12 @@ import "./libraries/DecimalMath.sol";
 import "./interfaces/IMappingToken.sol";
 import "./interfaces/IBaseAuctionLiquidPool.sol";
 import "./interfaces/IAuctionLiquidPoolManager.sol";
-import "./chainlink/VRFConsumerBaseV2Upgradeable.sol";
+import "./chainlink/LinkTokenInterface.sol";
 
 abstract contract BaseAuctionLiquidPool is
     IBaseAuctionLiquidPool,
     OwnableUpgradeable,
-    ReentrancyGuardUpgradeable,
-    VRFConsumerBaseV2Upgradeable
+    ReentrancyGuardUpgradeable
 {
     using SafeERC20 for IERC20;
     using DecimalMath for uint256;
@@ -28,10 +27,12 @@ abstract contract BaseAuctionLiquidPool is
     event SwapRequested(address indexed account, uint256 tokenId, uint256 requestId);
     event Redeemed(address indexed account, uint256 requestId, uint256[] tokenIds);
     event Swaped(address indexed account, uint256 requestId, uint256 tokenId);
+    error OnlyCoordinatorCanFulfill(address have, address want);
 
-    // keyHash being used for chainlink vrf coordinate
+    address private vrfCoordinator; // goerli: 0x2Ca8E0C643bDe4C2E08ab1fA0da3401AdAD7734D, etherscan: 0x271682DEB8C4E0901D1a1550aD2e64D568E69909
+    address private constant LINK = 0x326C977E6efc84E512bB9C30f76E30c160eD06FB; // 0x514910771AF9Ca656af840dff83E8264EcF986CA
     bytes32 private constant s_keyHash =
-        0x79d3d8832d904592c0bf9818b621522c988bb8b0c05cdc3b15aea1b6e8db0c15;
+        0x79d3d8832d904592c0bf9818b621522c988bb8b0c05cdc3b15aea1b6e8db0c15; // 0x8af398995b04c28e9951adb9721ef74c74f93e6a478f39e7e0777be13527e7ef
     uint16 private constant s_requestConfirmations = 3;
     uint32 private constant s_callbackGasLimit = 10000000;
     uint64 public s_subscriptionId;
@@ -77,15 +78,8 @@ abstract contract BaseAuctionLiquidPool is
     ) internal onlyInitializing {
         __Ownable_init();
         __ReentrancyGuard_init();
-        __VRFConsumerBaseV2_init(coordinator);
-        // Etherscan
-        // 0x271682DEB8C4E0901D1a1550aD2e64D568E69909, // VRF Coordinator Etherscan
-        // 0x514910771AF9Ca656af840dff83E8264EcF986CA // LINK Token Etherscan
 
-        // Etherscan
-        // keyHash = 0x8af398995b04c28e9951adb9721ef74c74f93e6a478f39e7e0777be13527e7ef;
-        // fee = 1e14; // 0.0001 LINK
-
+        vrfCoordinator = coordinator;
         manager = IAuctionLiquidPoolManager(msg.sender);
         dexToken = token;
         mappingToken = mToken;
@@ -103,6 +97,32 @@ abstract contract BaseAuctionLiquidPool is
         feeValues = params.feeValues;
 
         createNewSubscription();
+    }
+
+    /**
+     * @notice fulfillRandomness handles the VRF response. Your contract must
+     * @notice implement it. See "SECURITY CONSIDERATIONS" above for important
+     * @notice principles to keep in mind when implementing your fulfillRandomness
+     * @notice method.
+     *
+     * @dev VRFConsumerBaseV2 expects its subcontracts to have a method with this
+     * @dev signature, and will call it once it has verified the proof
+     * @dev associated with the randomness. (It is triggered via a call to
+     * @dev rawFulfillRandomness, below.)
+     *
+     * @param requestId The Id initially returned by requestRandomWords
+     * @param randomWords the VRF output expanded to the requested number of words
+     */
+    function fulfillRandomWords(uint256 requestId, uint256[] memory randomWords) internal virtual;
+
+    // rawFulfillRandomness is called by VRFCoordinator when it receives a valid VRF
+    // proof. rawFulfillRandomness then calls fulfillRandomness, after validating
+    // the origin of the call
+    function rawFulfillRandomWords(uint256 requestId, uint256[] memory randomWords) external {
+        if (msg.sender != vrfCoordinator) {
+            revert OnlyCoordinatorCanFulfill(msg.sender, vrfCoordinator);
+        }
+        fulfillRandomWords(requestId, randomWords);
     }
 
     /**
@@ -187,6 +207,15 @@ abstract contract BaseAuctionLiquidPool is
     function createNewSubscription() private {
         s_subscriptionId = VRFCoordinatorV2Interface(vrfCoordinator).createSubscription();
         VRFCoordinatorV2Interface(vrfCoordinator).addConsumer(s_subscriptionId, address(this));
+    }
+
+    function chargeLINK(uint256 amount) external {
+        IERC20(LINK).safeTransferFrom(msg.sender, address(this), amount);
+        LinkTokenInterface(LINK).transferAndCall(
+            vrfCoordinator,
+            amount,
+            abi.encode(s_subscriptionId)
+        );
     }
 
     function requestRandomWords(uint32 numWords) internal returns (uint256) {
