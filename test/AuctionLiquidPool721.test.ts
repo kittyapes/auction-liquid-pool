@@ -17,10 +17,10 @@ describe('Auction Liquid Pool 721', function () {
   beforeEach(async () => {
     [owner, alice, bob] = await ethers.getSigners();
 
-    const VRFCoordinatorFactory = await ethers.getContractFactory('VRFCoordinatorMock');
+    const VRFCoordinatorFactory = await ethers.getContractFactory('VRFCoordinatorV2Mock');
     const LinkFactory = await ethers.getContractFactory('LinkToken');
-    const link = await LinkFactory.deploy();
-    coordinator = await VRFCoordinatorFactory.deploy(link.address);
+    const link = await LinkFactory.attach('0x326C977E6efc84E512bB9C30f76E30c160eD06FB');
+    coordinator = await VRFCoordinatorFactory.deploy(utils.parseEther('0.1'), 1e9);
 
     const DexTokenFactory = await ethers.getContractFactory('DexToken');
     const Mock721NFTFactory = await ethers.getContractFactory('Mock721NFT');
@@ -32,7 +32,6 @@ describe('Auction Liquid Pool 721', function () {
     );
     const manager = await upgrades.deployProxy(AuctionLiquidPoolManagerFactory, [
       coordinator.address,
-      link.address,
       dexToken.address,
     ]);
 
@@ -75,7 +74,7 @@ describe('Auction Liquid Pool 721', function () {
     await mappingToken.connect(owner).approve(pool.address, utils.parseEther('100'));
     await mappingToken.connect(alice).approve(pool.address, utils.parseEther('100'));
     await mappingToken.connect(bob).approve(pool.address, utils.parseEther('100'));
-    await link.transfer(pool.address, utils.parseEther('10'));
+    // await link.transfer(pool.address, utils.parseEther('10'));
     await nft.setApprovalForAll(pool.address, true);
 
     await pool.startAuction(0);
@@ -108,10 +107,11 @@ describe('Auction Liquid Pool 721', function () {
   it('#redeem', async () => {
     const tx = await pool.connect(alice).redeem(1);
     const receipt = await tx.wait();
-    const requestId = receipt.events[receipt.events.length - 1].args.requestIds[0];
+    const requestId = receipt.events[receipt.events.length - 1].args.requestId;
     const beforeOwnerBal = await mappingToken.balanceOf(owner.address);
     const beforeAliceBal = await mappingToken.balanceOf(alice.address);
-    await coordinator.callBackWithRandomness(requestId, 123456, pool.address);
+    await coordinator.fundSubscription(await pool.s_subscriptionId(), utils.parseEther('100'));
+    await coordinator.fulfillRandomWordsWithOverride(requestId, pool.address, [123456]);
     expect(await nft.ownerOf(2)).to.eq(alice.address);
     expect(beforeAliceBal.sub(await mappingToken.balanceOf(alice.address))).to.eq(
       utils.parseEther('2'),
@@ -129,7 +129,8 @@ describe('Auction Liquid Pool 721', function () {
     const requestId = receipt.events[receipt.events.length - 1].args.requestId;
     const beforeOwnerBal = await mappingToken.balanceOf(owner.address);
     const beforeAliceBal = await mappingToken.balanceOf(alice.address);
-    await coordinator.callBackWithRandomness(requestId, 123456, pool.address);
+    await coordinator.fundSubscription(await pool.s_subscriptionId(), utils.parseEther('100'));
+    await coordinator.fulfillRandomWordsWithOverride(requestId, pool.address, [123456]);
     expect(await nft.ownerOf(3)).to.eq(pool.address);
     expect(await nft.ownerOf(2)).to.eq(alice.address);
     expect(beforeAliceBal.sub(await mappingToken.balanceOf(alice.address))).to.eq(

@@ -8,7 +8,6 @@ interface IAuctionLiquidPool is IBaseAuctionLiquidPool {
         address,
         address,
         address,
-        address,
         PoolParams memory
     ) external;
 

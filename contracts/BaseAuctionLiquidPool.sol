@@ -7,31 +7,34 @@ import "@openzeppelin/contracts-upgradeable/security/ReentrancyGuardUpgradeable.
 import "@openzeppelin/contracts/proxy/Clones.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@chainlink/contracts/src/v0.8/interfaces/VRFCoordinatorV2Interface.sol";
 
 import "./libraries/DecimalMath.sol";
 import "./interfaces/IMappingToken.sol";
 import "./interfaces/IBaseAuctionLiquidPool.sol";
 import "./interfaces/IAuctionLiquidPoolManager.sol";
-import "./chainlink/VRFConsumerBaseUpgradeable.sol";
+import "./chainlink/VRFConsumerBaseV2Upgradeable.sol";
 
 abstract contract BaseAuctionLiquidPool is
     IBaseAuctionLiquidPool,
     OwnableUpgradeable,
     ReentrancyGuardUpgradeable,
-    VRFConsumerBaseUpgradeable
+    VRFConsumerBaseV2Upgradeable
 {
     using SafeERC20 for IERC20;
     using DecimalMath for uint256;
 
-    event RedeemRequested(address indexed account, bytes32[] requestIds);
-    event SwapRequested(address indexed account, uint256 tokenId, bytes32 requestId);
-    event Redeemed(address indexed account, bytes32 requestId, uint256 tokenId);
-    event Swaped(address indexed account, bytes32 requestId, uint256 tokenId);
+    event RedeemRequested(address indexed account, uint256 requestId);
+    event SwapRequested(address indexed account, uint256 tokenId, uint256 requestId);
+    event Redeemed(address indexed account, uint256 requestId, uint256[] tokenIds);
+    event Swaped(address indexed account, uint256 requestId, uint256 tokenId);
 
     // keyHash being used for chainlink vrf coordinate
-    bytes32 internal keyHash;
-    // LINK token amount charging for fee
-    uint256 internal fee;
+    bytes32 private constant s_keyHash =
+        0x79d3d8832d904592c0bf9818b621522c988bb8b0c05cdc3b15aea1b6e8db0c15;
+    uint16 private constant s_requestConfirmations = 3;
+    uint32 private constant s_callbackGasLimit = 10000000;
+    uint64 public s_subscriptionId;
 
     IAuctionLiquidPoolManager public manager;
 
@@ -51,10 +54,10 @@ abstract contract BaseAuctionLiquidPool is
     uint16[] public feeValues;
 
     // random request id -> redeem requester
-    mapping(bytes32 => address) public redeemers;
+    mapping(uint256 => address) public redeemers;
     // random request id -> swap requester
-    mapping(bytes32 => uint256) public swaps;
-    mapping(bytes32 => address) public swapper;
+    mapping(uint256 => uint256) public swaps;
+    mapping(uint256 => address) public swapper;
 
     struct Auction {
         // last highest bidder
@@ -68,20 +71,16 @@ abstract contract BaseAuctionLiquidPool is
 
     function __BaseAuctionLiquidPool_init(
         address coordinator,
-        address link,
         address token,
         address mToken,
         PoolParams memory params
     ) internal onlyInitializing {
         __Ownable_init();
         __ReentrancyGuard_init();
-        __VRFConsumerBase_init(coordinator, link);
+        __VRFConsumerBaseV2_init(coordinator);
         // Etherscan
         // 0x271682DEB8C4E0901D1a1550aD2e64D568E69909, // VRF Coordinator Etherscan
         // 0x514910771AF9Ca656af840dff83E8264EcF986CA // LINK Token Etherscan
-
-        keyHash = 0x79d3d8832d904592c0bf9818b621522c988bb8b0c05cdc3b15aea1b6e8db0c15;
-        fee = 25e17; // 0.25 LINK
 
         // Etherscan
         // keyHash = 0x8af398995b04c28e9951adb9721ef74c74f93e6a478f39e7e0777be13527e7ef;
@@ -102,6 +101,8 @@ abstract contract BaseAuctionLiquidPool is
         createdAt = uint64(block.timestamp);
         feeTypes = params.feeTypes;
         feeValues = params.feeValues;
+
+        createNewSubscription();
     }
 
     /**
@@ -109,14 +110,14 @@ abstract contract BaseAuctionLiquidPool is
      * @dev this will request randome number via chainlink vrf coordinator
      * requested random number will be retrieved by following {fulfillRandomness}
      */
-    function redeem(uint256 count) external virtual returns (bytes32[] memory requestIds);
+    function redeem(uint32) external virtual returns (uint256);
 
     /**
      * @notice user can swap random NFT by paying ratio amount of maNFT
      * @dev this will request randome number via chainlink vrf coordinator
      * requested random number will be retrieved by following {fulfillRandomness}
      */
-    function swap(uint256 tokenId) external virtual returns (bytes32 requestId);
+    function swap(uint256) external virtual returns (uint256);
 
     /**
      * @notice start auction for tokenId
@@ -180,5 +181,22 @@ abstract contract BaseAuctionLiquidPool is
             IERC20(mappingToken).safeTransferFrom(account, to, feeAmount);
         }
         IMappingToken(mappingToken).burnFrom(account, ratio - totalFee);
+    }
+
+    // Create a new subscription when the contract is initially deployed.
+    function createNewSubscription() private {
+        s_subscriptionId = VRFCoordinatorV2Interface(vrfCoordinator).createSubscription();
+        VRFCoordinatorV2Interface(vrfCoordinator).addConsumer(s_subscriptionId, address(this));
+    }
+
+    function requestRandomWords(uint32 numWords) internal returns (uint256) {
+        return
+            VRFCoordinatorV2Interface(vrfCoordinator).requestRandomWords(
+                s_keyHash,
+                s_subscriptionId,
+                s_requestConfirmations,
+                s_callbackGasLimit,
+                numWords
+            );
     }
 }

@@ -17,7 +17,6 @@ contract AuctionLiquidPoolManager is IBaseAuctionLiquidPool, OwnableUpgradeable 
     address private constant UNIV2_ROUTER = 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D;
 
     address public vrfCoordinator;
-    address public linkToken;
     address public dexToken;
     address public treasury;
 
@@ -28,15 +27,10 @@ contract AuctionLiquidPoolManager is IBaseAuctionLiquidPool, OwnableUpgradeable 
 
     event PoolCreated(address indexed owner_, address indexed pool_, address poolTemplate_);
 
-    function initialize(
-        address coordinator_,
-        address link_,
-        address token_
-    ) public initializer {
+    function initialize(address coordinator_, address token_) public initializer {
         __Ownable_init();
 
         vrfCoordinator = coordinator_;
-        linkToken = link_;
         dexToken = token_;
     }
 
@@ -91,7 +85,7 @@ contract AuctionLiquidPoolManager is IBaseAuctionLiquidPool, OwnableUpgradeable 
             require(pool721Template != address(0), "PoolManager: 721_TEMPLATE_UNSET");
             poolAddress = Clones.clone(pool721Template);
             IAuctionLiquidPool pool = IAuctionLiquidPool(poolAddress);
-            pool.initialize(vrfCoordinator, linkToken, dexToken, mTokenAddress, params);
+            pool.initialize(vrfCoordinator, dexToken, mTokenAddress, params);
             pool.transferOwnership(msg.sender);
 
             for (uint256 i; i < params.tokenIds.length; i += 1)
@@ -100,7 +94,7 @@ contract AuctionLiquidPoolManager is IBaseAuctionLiquidPool, OwnableUpgradeable 
             require(pool1155Template != address(0), "PoolManager: 1155_TEMPLATE_UNSET");
             poolAddress = Clones.clone(pool1155Template);
             IAuctionLiquidPool pool = IAuctionLiquidPool(poolAddress);
-            pool.initialize(vrfCoordinator, linkToken, dexToken, mTokenAddress, params);
+            pool.initialize(vrfCoordinator, dexToken, mTokenAddress, params);
             pool.transferOwnership(msg.sender);
 
             for (uint256 i; i < params.tokenIds.length; i += 1)

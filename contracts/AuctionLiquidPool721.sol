@@ -10,16 +10,15 @@ import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
 import "./BaseAuctionLiquidPool.sol";
 import "./libraries/DecimalMath.sol";
+import "hardhat/console.sol";
 
 contract AuctionLiquidPool721 is BaseAuctionLiquidPool, ERC721HolderUpgradeable {
     using DecimalMath for uint256;
     using SafeERC20 for IERC20;
     using EnumerableSetUpgradeable for EnumerableSetUpgradeable.UintSet;
-    using EnumerableSetUpgradeable for EnumerableSetUpgradeable.Bytes32Set;
 
     EnumerableSetUpgradeable.UintSet private tokenIds;
     EnumerableSetUpgradeable.UintSet private freeTokenIds;
-    EnumerableSetUpgradeable.Bytes32Set private pendingRequests;
 
     modifier onlyExistingId(uint256 tokenId) {
         require(tokenIds.contains(tokenId), "Pool: NON_EXISTENCE_NFT");
@@ -28,12 +27,11 @@ contract AuctionLiquidPool721 is BaseAuctionLiquidPool, ERC721HolderUpgradeable 
 
     function initialize(
         address coordinator,
-        address link,
         address token,
         address mToken,
         PoolParams memory params
     ) public initializer {
-        __BaseAuctionLiquidPool_init(coordinator, link, token, mToken, params);
+        __BaseAuctionLiquidPool_init(coordinator, token, mToken, params);
         __ERC721Holder_init();
 
         for (uint256 i; i < params.tokenIds.length; i += 1) {
@@ -45,34 +43,28 @@ contract AuctionLiquidPool721 is BaseAuctionLiquidPool, ERC721HolderUpgradeable 
     /**
      * @notice user can redeem random NFT by paying ratio amount of maNFT
      * @dev this will request randome number via chainlink vrf coordinator
-     * requested random number will be retrieved by following {fulfillRandomness}
+     * requested random number will be retrieved by following {fulfillRandomWords}
      */
-    function redeem(uint256 count) external override returns (bytes32[] memory requestIds) {
+    function redeem(uint32 count) external override returns (uint256 requestId) {
         require(block.timestamp < createdAt + lockPeriod, "Pool: NFTS_UNLOCKED");
-        require(LINK.balanceOf(address(this)) >= fee * count, "Pool: INSUFFICIENT_LINK");
         require(freeTokenIds.length() >= count, "Pool: NO_FREE_NFTS");
 
-        requestIds = new bytes32[](count);
-        for (uint256 i; i < count; i += 1) {
-            requestIds[i] = requestRandomness(keyHash, fee);
-            redeemers[requestIds[i]] = msg.sender;
-            pendingRequests.add(requestIds[i]);
-        }
-        emit RedeemRequested(msg.sender, requestIds);
+        requestId = requestRandomWords(count);
+        redeemers[requestId] = msg.sender;
+        emit RedeemRequested(msg.sender, requestId);
     }
 
     /**
      * @notice user can swap random NFT by paying ratio amount of maNFT
      * @dev this will request randome number via chainlink vrf coordinator
-     * requested random number will be retrieved by following {fulfillRandomness}
+     * requested random number will be retrieved by following {fulfillRandomWords}
      */
-    function swap(uint256 tokenId) external override returns (bytes32 requestId) {
+    function swap(uint256 tokenId) external override returns (uint256 requestId) {
         require(IERC721(nft).ownerOf(tokenId) == msg.sender, "Pool: NOT_OWNER");
         require(block.timestamp < createdAt + lockPeriod, "Pool: NFTS_UNLOCKED");
-        require(LINK.balanceOf(address(this)) >= fee, "Pool: INSUFFICIENT_LINK");
         require(freeTokenIds.length() > 0, "Pool: NO_FREE_NFTS");
 
-        requestId = requestRandomness(keyHash, fee);
+        requestId = requestRandomWords(1);
         swaps[requestId] = tokenId;
         emit SwapRequested(msg.sender, tokenId, requestId);
     }
@@ -80,32 +72,36 @@ contract AuctionLiquidPool721 is BaseAuctionLiquidPool, ERC721HolderUpgradeable 
     /**
      * @notice above {redeem} function makes random number generation request
      * @param requestId above {redeem} function returns requestId per request
-     * @param randomness generated random number to determine which tokenId to redeem
+     * @param randomWords generated random number to determine which tokenId to redeem
      */
-    function fulfillRandomness(bytes32 requestId, uint256 randomness) internal override {
-        address requestor;
-        uint256 tokenId = freeTokenIds.at(randomness % freeTokenIds.length());
-        uint256 swapId = swaps[requestId];
-        if (redeemers[requestId] != address(0)) {
-            requestor = redeemers[requestId];
-            delete redeemers[requestId];
-            emit Redeemed(requestor, requestId, tokenId);
-        } else if (swapId > 0) {
+    function fulfillRandomWords(uint256 requestId, uint256[] memory randomWords) internal override {
+        if (freeTokenIds.length() == 0) return;
+
+        uint256[] memory tokenIds_ = new uint256[](randomWords.length);
+        address requestor = redeemers[requestId];
+        if (swaps[requestId] > 0) {
+            tokenIds_[0] = freeTokenIds.at(randomWords[0] % freeTokenIds.length());
+            uint256 swapId = swaps[requestId];
             requestor = IERC721(nft).ownerOf(swapId);
-            IERC721(nft).safeTransferFrom(requestor, address(this), swapId);
             tokenIds.add(swapId);
             freeTokenIds.add(swapId);
+            freeTokenIds.remove(tokenIds_[0]);
             delete swaps[requestId];
-            emit Swaped(requestor, requestId, tokenId);
+            IERC721(nft).safeTransferFrom(requestor, address(this), swapId);
+            IERC721(nft).safeTransferFrom(address(this), requestor, tokenIds_[0]);
+            emit Swaped(requestor, requestId, tokenIds_[0]);
+        } else if (requestor != address(0)) {
+            for (uint256 i; i < randomWords.length; i += 1) {
+                tokenIds_[i] = freeTokenIds.at(randomWords[i] % freeTokenIds.length());
+                tokenIds.remove(tokenIds_[i]);
+                freeTokenIds.remove(tokenIds_[i]);
+                IERC721(nft).safeTransferFrom(address(this), requestor, tokenIds_[i]);
+            }
+            emit Redeemed(requestor, requestId, tokenIds_);
         } else {
             revert("Pool: INVALID_REQUEST_ID");
         }
-
-        tokenIds.remove(tokenId);
-        freeTokenIds.remove(tokenId);
-        pendingRequests.remove(requestId);
         _distributeFee(requestor);
-        IERC721(nft).safeTransferFrom(address(this), requestor, tokenId);
     }
 
     /**
