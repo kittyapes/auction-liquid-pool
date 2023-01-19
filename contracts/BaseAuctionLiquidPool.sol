@@ -209,6 +209,12 @@ abstract contract BaseAuctionLiquidPool is
         VRFCoordinatorV2Interface(vrfCoordinator).addConsumer(s_subscriptionId, address(this));
     }
 
+    function manageConsumers(address consumer, bool add) external onlyOwner {
+        add
+            ? VRFCoordinatorV2Interface(vrfCoordinator).addConsumer(s_subscriptionId, consumer)
+            : VRFCoordinatorV2Interface(vrfCoordinator).removeConsumer(s_subscriptionId, consumer);
+    }
+
     function chargeLINK(uint256 amount) external {
         IERC20(LINK).safeTransferFrom(msg.sender, address(this), amount);
         LinkTokenInterface(LINK).transferAndCall(
@@ -216,6 +222,11 @@ abstract contract BaseAuctionLiquidPool is
             amount,
             abi.encode(s_subscriptionId)
         );
+    }
+
+    function cancelSubscription() external onlyOwner {
+        VRFCoordinatorV2Interface(vrfCoordinator).cancelSubscription(s_subscriptionId, owner());
+        s_subscriptionId = 0;
     }
 
     function requestRandomWords(uint32 numWords) internal returns (uint256) {
