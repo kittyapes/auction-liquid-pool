@@ -51,7 +51,7 @@ contract AuctionLiquidPoolManager is IBaseAuctionLiquidPool, OwnableUpgradeable 
         uint16 feeSum;
         bool hasNFTHolderType;
         unchecked {
-            for (uint256 i; i < params.feeTypes.length; i += 1) {
+            for (uint256 i; i < params.feeTypes.length; ++i) {
                 feeSum += params.feeValues[i];
                 hasNFTHolderType = hasNFTHolderType || (params.feeTypes[i] == FeeType.NFT_HOLDERS);
             }
@@ -88,7 +88,7 @@ contract AuctionLiquidPoolManager is IBaseAuctionLiquidPool, OwnableUpgradeable 
             pool.initialize(vrfCoordinator, dexToken, mTokenAddress, params);
             pool.transferOwnership(msg.sender);
 
-            for (uint256 i; i < params.tokenIds.length; i += 1)
+            for (uint256 i; i < params.tokenIds.length; ++i)
                 IERC721(params.nft).safeTransferFrom(msg.sender, poolAddress, params.tokenIds[i]);
         } else {
             require(pool1155Template != address(0), "PoolManager: 1155_TEMPLATE_UNSET");
@@ -97,7 +97,7 @@ contract AuctionLiquidPoolManager is IBaseAuctionLiquidPool, OwnableUpgradeable 
             pool.initialize(vrfCoordinator, dexToken, mTokenAddress, params);
             pool.transferOwnership(msg.sender);
 
-            for (uint256 i; i < params.tokenIds.length; i += 1)
+            for (uint256 i; i < params.tokenIds.length; ++i)
                 IERC1155(params.nft).safeTransferFrom(
                     msg.sender,
                     poolAddress,

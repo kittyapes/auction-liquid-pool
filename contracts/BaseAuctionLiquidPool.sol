@@ -27,6 +27,9 @@ abstract contract BaseAuctionLiquidPool is
     event SwapRequested(address indexed account, uint256 tokenId, uint256 requestId);
     event Redeemed(address indexed account, uint256 requestId, uint256[] tokenIds);
     event Swaped(address indexed account, uint256 requestId, uint256 tokenId);
+    event AuctionStarted(uint256 indexed tokenId, address indexed starter);
+    event BidPlaced(uint256 indexed tokenId, address indexed bidder, uint256 amount);
+    event AuctionEnded(uint256 indexed tokenId, address indexed winner);
     error OnlyCoordinatorCanFulfill(address have, address want);
 
     address private vrfCoordinator; // goerli: 0x2Ca8E0C643bDe4C2E08ab1fA0da3401AdAD7734D, etherscan: 0x271682DEB8C4E0901D1a1550aD2e64D568E69909
@@ -79,6 +82,14 @@ abstract contract BaseAuctionLiquidPool is
         __Ownable_init();
         __ReentrancyGuard_init();
 
+        assert(token != address(0));
+        assert(mToken != address(0));
+        assert(params.nft != address(0));
+        assert(params.lockPeriod > 0);
+        assert(params.duration > 0);
+        assert(params.delta > 0);
+        assert(params.ratio >= 1 ether);
+
         vrfCoordinator = coordinator;
         manager = IAuctionLiquidPoolManager(msg.sender);
         dexToken = token;
@@ -97,6 +108,15 @@ abstract contract BaseAuctionLiquidPool is
         feeValues = params.feeValues;
 
         createNewSubscription();
+    }
+
+    function chargeLINK(uint256 amount) external {
+        IERC20(LINK).safeTransferFrom(msg.sender, address(this), amount);
+        LinkTokenInterface(LINK).transferAndCall(
+            vrfCoordinator,
+            amount,
+            abi.encode(s_subscriptionId)
+        );
     }
 
     /**
@@ -157,15 +177,6 @@ abstract contract BaseAuctionLiquidPool is
     function endAuction(uint256 tokenId) external virtual;
 
     /**
-     * @notice cancel auction for tokenId
-     * @dev only pool owner can end the auction
-     * - return bid amounts to bidder,
-     * - lock NFT back to contract
-     * @param tokenId targeted token Id
-     */
-    function cancelAuction(uint256 tokenId) external virtual;
-
-    /**
      * @notice bid to the auction for tokenId
      * @dev any user can bid with ratio amount of maNFT and customized amount of ether
      * bid flow is like this
@@ -174,9 +185,22 @@ abstract contract BaseAuctionLiquidPool is
      * maNFT amount would be always the same - ratio.
      * @param tokenId targeted token Id
      */
-    function bid(uint256 tokenId) external payable virtual;
+    function bid(uint256 tokenId) external virtual;
 
     function getTokenIds() external view virtual returns (uint256[] memory tokenIds_);
+
+    function getFreeTokenIds() external view virtual returns (uint256[] memory tokenIds_);
+
+    function manageConsumers(address consumer, bool add) external onlyOwner {
+        add
+            ? VRFCoordinatorV2Interface(vrfCoordinator).addConsumer(s_subscriptionId, consumer)
+            : VRFCoordinatorV2Interface(vrfCoordinator).removeConsumer(s_subscriptionId, consumer);
+    }
+
+    function cancelSubscription() external onlyOwner {
+        VRFCoordinatorV2Interface(vrfCoordinator).cancelSubscription(s_subscriptionId, owner());
+        s_subscriptionId = 0;
+    }
 
     function recover() external onlyOwner {
         payable(owner()).transfer(address(this).balance);
@@ -188,9 +212,11 @@ abstract contract BaseAuctionLiquidPool is
 
     function recoverNFTs() external virtual;
 
-    function _distributeFee(address account) internal {
-        uint256 totalFee = ratio.decimalMul(randomFee);
-        for (uint256 i; i < feeTypes.length; i += 1) {
+    function lockNFTs(uint256[] calldata) external virtual;
+
+    function _distributeFee(address account, uint256 count) internal {
+        uint256 totalFee = (count * ratio).decimalMul(randomFee);
+        for (uint256 i; i < feeTypes.length; ++i) {
             uint256 feeAmount = totalFee.decimalMul(feeValues[i]);
             address to;
             if (feeTypes[i] == FeeType.PROJECT) to = owner();
@@ -200,33 +226,7 @@ abstract contract BaseAuctionLiquidPool is
             else to = owner();
             IERC20(mappingToken).safeTransferFrom(account, to, feeAmount);
         }
-        IMappingToken(mappingToken).burnFrom(account, ratio - totalFee);
-    }
-
-    // Create a new subscription when the contract is initially deployed.
-    function createNewSubscription() private {
-        s_subscriptionId = VRFCoordinatorV2Interface(vrfCoordinator).createSubscription();
-        VRFCoordinatorV2Interface(vrfCoordinator).addConsumer(s_subscriptionId, address(this));
-    }
-
-    function manageConsumers(address consumer, bool add) external onlyOwner {
-        add
-            ? VRFCoordinatorV2Interface(vrfCoordinator).addConsumer(s_subscriptionId, consumer)
-            : VRFCoordinatorV2Interface(vrfCoordinator).removeConsumer(s_subscriptionId, consumer);
-    }
-
-    function chargeLINK(uint256 amount) external {
-        IERC20(LINK).safeTransferFrom(msg.sender, address(this), amount);
-        LinkTokenInterface(LINK).transferAndCall(
-            vrfCoordinator,
-            amount,
-            abi.encode(s_subscriptionId)
-        );
-    }
-
-    function cancelSubscription() external onlyOwner {
-        VRFCoordinatorV2Interface(vrfCoordinator).cancelSubscription(s_subscriptionId, owner());
-        s_subscriptionId = 0;
+        IMappingToken(mappingToken).burnFrom(account, (count * ratio) - totalFee);
     }
 
     function requestRandomWords(uint32 numWords) internal returns (uint256) {
@@ -238,5 +238,11 @@ abstract contract BaseAuctionLiquidPool is
                 s_callbackGasLimit,
                 numWords
             );
+    }
+
+    // Create a new subscription when the contract is initially deployed.
+    function createNewSubscription() private {
+        s_subscriptionId = VRFCoordinatorV2Interface(vrfCoordinator).createSubscription();
+        VRFCoordinatorV2Interface(vrfCoordinator).addConsumer(s_subscriptionId, address(this));
     }
 }

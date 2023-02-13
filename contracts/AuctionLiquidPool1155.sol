@@ -19,11 +19,6 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
     EnumerableSetUpgradeable.UintSet private tokenIds;
     EnumerableSetUpgradeable.UintSet private freeTokenIds;
 
-    modifier onlyExistingId(uint256 tokenId) {
-        require(tokenIds.contains(tokenId), "Pool: NON_EXISTENCE_NFT");
-        _;
-    }
-
     function initialize(
         address coordinator,
         address token,
@@ -33,7 +28,7 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
         __BaseAuctionLiquidPool_init(coordinator, token, mToken, params);
         __ERC1155Holder_init();
 
-        for (uint256 i; i < params.tokenIds.length; i += 1) {
+        for (uint256 i; i < params.tokenIds.length; ++i) {
             tokenIds.add(params.tokenIds[i]);
             freeTokenIds.add(params.tokenIds[i]);
         }
@@ -85,13 +80,14 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
             requestor = swapper[requestId];
             tokenIds.add(swapId);
             freeTokenIds.add(swapId);
+            tokenIds.remove(tokenIds_[0]);
             freeTokenIds.remove(tokenIds_[0]);
             delete swaps[requestId];
             IERC1155(nft).safeTransferFrom(requestor, address(this), swapId, 1, "");
             IERC1155(nft).safeTransferFrom(address(this), requestor, tokenIds_[0], 1, "");
             emit Swaped(requestor, requestId, tokenIds_[0]);
         } else if (requestor != address(0)) {
-            for (uint256 i; i < randomWords.length; i += 1) {
+            for (uint256 i; i < randomWords.length; ++i) {
                 tokenIds_[i] = freeTokenIds.at(randomWords[i] % freeTokenIds.length());
                 tokenIds.remove(tokenIds_[i]);
                 freeTokenIds.remove(tokenIds_[i]);
@@ -101,7 +97,7 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
         } else {
             revert("Pool: INVALID_REQUEST_ID");
         }
-        _distributeFee(requestor);
+        _distributeFee(requestor, randomWords.length);
     }
 
     /**
@@ -109,21 +105,13 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
      * @dev any user can start auction for a targeted NFT
      * @param tokenId targeted token Id
      */
-    function startAuction(uint256 tokenId) external override onlyExistingId(tokenId) {
-        Auction memory auction = auctions[tokenId];
-        if (auction.startedAt > 0) {
-            require(block.timestamp > auction.startedAt + duration, "Pool: STILL_ACTIVE");
-            delete auctions[tokenId];
-
-            if (auction.bidAmount > 0) {
-                tokenIds.remove(tokenId);
-                IMappingToken(mappingToken).burnFrom(address(this), ratio);
-                IERC1155(nft).safeTransferFrom(address(this), auction.winner, tokenId, 1, "");
-            } else freeTokenIds.add(tokenId);
-            payable(owner()).transfer(auction.bidAmount);
-        }
-        auctions[tokenId].startedAt = block.timestamp;
+    function startAuction(uint256 tokenId) external override {
+        require(freeTokenIds.contains(tokenId), "Pool: NFT_IN_AUCTION");
+        IERC20(mappingToken).safeTransferFrom(msg.sender, address(this), ratio);
+        IERC20(dexToken).safeTransferFrom(msg.sender, address(this), startPrice);
+        auctions[tokenId] = Auction(msg.sender, startPrice, block.timestamp);
         freeTokenIds.remove(tokenId);
+        emit AuctionStarted(tokenId, msg.sender);
     }
 
     /**
@@ -134,38 +122,20 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
      * - transfer ether to pool owner as premium
      * @param tokenId targeted token Id
      */
-    function endAuction(uint256 tokenId) external override onlyOwner onlyExistingId(tokenId) {
-        Auction memory auction = auctions[tokenId];
+    function endAuction(uint256 tokenId) external override {
         require(
-            auctions[tokenId].startedAt > 0 &&
-                block.timestamp > auctions[tokenId].startedAt + duration,
-            "Pool: STILL_ACTIVE"
+            tokenIds.contains(tokenId) && !freeTokenIds.contains(tokenId),
+            "Pool: NO_AUCTION_FOR_NFT"
         );
-
-        delete auctions[tokenId];
-        if (auction.bidAmount > 0) {
-            tokenIds.remove(tokenId);
-            IMappingToken(mappingToken).burnFrom(address(this), ratio);
-            IERC1155(nft).safeTransferFrom(address(this), auction.winner, tokenId, 1, "");
-        } else freeTokenIds.add(tokenId);
-        payable(owner()).transfer(auction.bidAmount);
-    }
-
-    /**
-     * @notice cancel auction for tokenId
-     * @dev only pool owner can end the auction
-     * - return bid amounts to bidder,
-     * - lock NFT back to contract
-     * @param tokenId targeted token Id
-     */
-    function cancelAuction(uint256 tokenId) external override onlyOwner onlyExistingId(tokenId) {
         Auction memory auction = auctions[tokenId];
+        require(auction.startedAt + duration < block.timestamp, "Pool: STILL_ACTIVE");
+        require(auction.winner == msg.sender, "Pool: NOT_WINNER");
+
         delete auctions[tokenId];
-        freeTokenIds.add(tokenId);
-        if (auction.bidAmount > 0) {
-            payable(auction.winner).transfer(auction.bidAmount);
-            IERC20(mappingToken).safeTransfer(auction.winner, ratio);
-        }
+        tokenIds.remove(tokenId);
+        IMappingToken(mappingToken).burnFrom(address(this), ratio);
+        IERC1155(nft).safeTransferFrom(address(this), auction.winner, tokenId, 1, "");
+        emit AuctionEnded(tokenId, msg.sender);
     }
 
     /**
@@ -177,38 +147,24 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
      * maNFT amount would be always the same - ratio.
      * @param tokenId targeted token Id
      */
-    function bid(uint256 tokenId) external payable override {
+    function bid(uint256 tokenId) external override {
         Auction storage auction = auctions[tokenId];
         require(block.timestamp < auction.startedAt + duration, "Pool: EXPIRED");
-        require(msg.value >= startPrice, "Pool: TOO_LOW_BID");
 
-        if (auction.bidAmount == 0) {
-            IERC20(mappingToken).safeTransferFrom(msg.sender, address(this), ratio);
-            auction.bidAmount = msg.value;
-            // if (msg.value > startPrice) payable(msg.sender).transfer(msg.value - startPrice);
-        } else {
-            uint256 nextBidAmount = isLinear
-                ? auction.bidAmount + delta
-                : auction.bidAmount + auction.bidAmount.decimalMul(delta);
-            require(msg.value >= nextBidAmount, "Pool: INSUFFICIENT_BID");
-            if (msg.value > nextBidAmount) payable(msg.sender).transfer(msg.value - nextBidAmount);
-            auction.bidAmount = nextBidAmount;
-
-            IERC20(mappingToken).transfer(auction.winner, ratio);
-            IERC20(mappingToken).safeTransferFrom(msg.sender, address(this), ratio);
-        }
+        uint256 nextBidAmount = isLinear
+            ? auction.bidAmount + delta
+            : auction.bidAmount + auction.bidAmount.decimalMul(delta);
+        IERC20(mappingToken).safeTransfer(auction.winner, ratio);
+        IERC20(mappingToken).safeTransferFrom(msg.sender, address(this), ratio);
+        IERC20(dexToken).safeTransfer(auction.winner, auction.bidAmount);
+        IERC20(dexToken).safeTransferFrom(msg.sender, address(this), nextBidAmount);
+        auction.bidAmount = nextBidAmount;
         auction.winner = msg.sender;
-    }
-
-    function getTokenIds() external view override returns (uint256[] memory tokenIds_) {
-        tokenIds_ = new uint256[](tokenIds.length());
-        unchecked {
-            for (uint256 i; i < tokenIds_.length; i += 1) tokenIds_[i] = tokenIds.at(i);
-        }
+        emit BidPlaced(tokenId, msg.sender, nextBidAmount);
     }
 
     function recoverNFTs() external override onlyOwner {
-        for (uint256 i; i < tokenIds.length(); i += 1)
+        for (uint256 i; i < tokenIds.length(); ++i)
             IERC1155(nft).safeTransferFrom(
                 address(this),
                 owner(),
@@ -216,5 +172,26 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
                 IERC1155(nft).balanceOf(address(this), tokenIds.at(i)),
                 ""
             );
+    }
+
+    function lockNFTs(uint256[] calldata tokenIds_) external override onlyOwner {
+        for (uint256 i; i < tokenIds_.length; ++i) {
+            require(!tokenIds.contains(tokenIds_[i]), "Pool: NFT_ALREADY_LOCKED");
+            IERC1155(nft).safeTransferFrom(msg.sender, address(this), tokenIds_[i], 1, "");
+        }
+    }
+
+    function getTokenIds() external view override returns (uint256[] memory tokenIds_) {
+        tokenIds_ = new uint256[](tokenIds.length());
+        unchecked {
+            for (uint256 i; i < tokenIds_.length; ++i) tokenIds_[i] = tokenIds.at(i);
+        }
+    }
+
+    function getFreeTokenIds() external view override returns (uint256[] memory tokenIds_) {
+        tokenIds_ = new uint256[](freeTokenIds.length());
+        unchecked {
+            for (uint256 i; i < tokenIds_.length; ++i) tokenIds_[i] = freeTokenIds.at(i);
+        }
     }
 }

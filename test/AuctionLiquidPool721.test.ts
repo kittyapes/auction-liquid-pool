@@ -9,9 +9,10 @@ describe('Auction Liquid Pool 721', function () {
   let alice: SignerWithAddress;
   let bob: SignerWithAddress;
 
-  let pool: Contract;
-  let nft: Contract;
+  let dexToken: Contract;
   let mappingToken: Contract;
+  let nft: Contract;
+  let pool: Contract;
   let coordinator: Contract;
 
   beforeEach(async () => {
@@ -22,7 +23,7 @@ describe('Auction Liquid Pool 721', function () {
 
     const DexTokenFactory = await ethers.getContractFactory('DexToken');
     const Mock721NFTFactory = await ethers.getContractFactory('Mock721NFT');
-    const dexToken = await DexTokenFactory.deploy();
+    dexToken = await DexTokenFactory.deploy();
     nft = await Mock721NFTFactory.deploy();
 
     const AuctionLiquidPoolManagerFactory = await ethers.getContractFactory(
@@ -72,33 +73,27 @@ describe('Auction Liquid Pool 721', function () {
     await mappingToken.connect(owner).approve(pool.address, utils.parseEther('100'));
     await mappingToken.connect(alice).approve(pool.address, utils.parseEther('100'));
     await mappingToken.connect(bob).approve(pool.address, utils.parseEther('100'));
+    await dexToken.mint(alice.address, utils.parseEther('100'));
+    await dexToken.mint(bob.address, utils.parseEther('100'));
+    await dexToken.connect(owner).approve(pool.address, utils.parseEther('1'));
+    await dexToken.connect(alice).approve(pool.address, utils.parseEther('1'));
+    await dexToken.connect(bob).approve(pool.address, utils.parseEther('1'));
     await nft.setApprovalForAll(pool.address, true);
 
     await pool.startAuction(0);
   });
 
   it('#auction', async () => {
-    await expect(pool.connect(alice).bid(0, { value: utils.parseEther('0.01') })).revertedWith(
-      'Pool: TOO_LOW_BID',
-    );
-    await pool.connect(alice).bid(0, { value: utils.parseEther('1') });
+    await pool.connect(alice).bid(0);
     let auction = await pool.auctions(0);
     expect(auction[0]).to.eq(alice.address);
-    await expect(pool.connect(bob).bid(0, { value: utils.parseEther('1.5') })).revertedWith(
-      'Pool: INSUFFICIENT_BID',
-    );
-    await pool.connect(bob).bid(0, { value: utils.parseEther('2') });
+    await pool.connect(bob).bid(0);
     auction = await pool.auctions(0);
     expect(auction[0]).to.eq(bob.address);
-    const ethBalance = await ethers.provider.getBalance(owner.address);
     await increaseTime(BigNumber.from('86400'));
-    await pool.endAuction(0);
+    await pool.connect(bob).endAuction(0);
     expect(await nft.ownerOf(0)).to.eq(bob.address);
-    expect(await ethers.provider.getBalance(owner.address)).to.closeTo(
-      ethBalance.add(auction[1]),
-      utils.parseEther('0.0002'),
-      '',
-    );
+    expect(await dexToken.balanceOf(pool.address)).to.eq(auction[1]);
   });
 
   it('#redeem', async () => {
