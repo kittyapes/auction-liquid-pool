@@ -187,10 +187,6 @@ abstract contract BaseAuctionLiquidPool is
      */
     function bid(uint256 tokenId) external virtual;
 
-    function getTokenIds() external view virtual returns (uint256[] memory tokenIds_);
-
-    function getFreeTokenIds() external view virtual returns (uint256[] memory tokenIds_);
-
     function manageConsumers(address consumer, bool add) external onlyOwner {
         add
             ? VRFCoordinatorV2Interface(vrfCoordinator).addConsumer(s_subscriptionId, consumer)
@@ -213,6 +209,24 @@ abstract contract BaseAuctionLiquidPool is
     function recoverNFTs() external virtual;
 
     function lockNFTs(uint256[] calldata) external virtual;
+
+    function getTokenIds() external view virtual returns (uint256[] memory tokenIds_);
+
+    function getFreeTokenIds() external view virtual returns (uint256[] memory tokenIds_);
+
+    function getFeeTypes() external view returns (FeeType[] memory feeTypes_) {
+        feeTypes_ = new FeeType[](feeTypes.length);
+        unchecked {
+            for (uint256 i; i < feeTypes_.length; ++i) feeTypes_[i] = feeTypes[i];
+        }
+    }
+
+    function getFeeValues() external view returns (uint16[] memory feeValues_) {
+        feeValues_ = new uint16[](feeValues.length);
+        unchecked {
+            for (uint256 i; i < feeValues_.length; ++i) feeValues_[i] = feeValues[i];
+        }
+    }
 
     function _distributeFee(address account, uint256 count) internal {
         uint256 totalFee = (count * ratio).decimalMul(randomFee);

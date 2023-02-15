@@ -25,7 +25,7 @@ contract AuctionLiquidPoolManager is IBaseAuctionLiquidPool, OwnableUpgradeable 
     address public pool1155Template;
     address[] public pools;
 
-    event PoolCreated(address indexed owner_, address indexed pool_, address poolTemplate_);
+    event PoolCreated(address indexed owner_, address pool_, bool is721_);
 
     function initialize(address coordinator_, address token_) public initializer {
         __Ownable_init();
@@ -108,7 +108,7 @@ contract AuctionLiquidPoolManager is IBaseAuctionLiquidPool, OwnableUpgradeable 
         }
 
         pools.push(poolAddress);
-        emit PoolCreated(msg.sender, poolAddress, [pool721Template, pool1155Template][cType - 1]);
+        emit PoolCreated(msg.sender, poolAddress, cType == 1);
     }
 
     /**
