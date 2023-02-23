@@ -23,6 +23,7 @@ abstract contract BaseAuctionLiquidPool is
     using SafeERC20 for IERC20;
     using DecimalMath for uint256;
 
+    event NFTsLocked(uint256[] tokenIds);
     event RedeemRequested(address indexed account, uint256 requestId);
     event SwapRequested(address indexed account, uint256 tokenId, uint256 requestId);
     event Redeemed(address indexed account, uint256 requestId, uint256[] tokenIds);

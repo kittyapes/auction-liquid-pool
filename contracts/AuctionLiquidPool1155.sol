@@ -179,6 +179,7 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
             require(!tokenIds.contains(tokenIds_[i]), "Pool: NFT_ALREADY_LOCKED");
             IERC1155(nft).safeTransferFrom(msg.sender, address(this), tokenIds_[i], 1, "");
         }
+        emit NFTsLocked(tokenIds_);
     }
 
     function getTokenIds() external view override returns (uint256[] memory tokenIds_) {
