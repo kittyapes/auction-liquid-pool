@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.17;
+pragma solidity 0.8.19;
 
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 
 contract MappingToken is OwnableUpgradeable, ERC20Upgradeable {
     address public uniswapPool;
+    address public auctionPool;
 
     function initialize(
         string memory name_,
@@ -15,6 +16,11 @@ contract MappingToken is OwnableUpgradeable, ERC20Upgradeable {
         __Ownable_init();
         __ERC20_init(name_, symbol_);
         _mint(msg.sender, amount);
+    }
+
+    function mintByLock(address to, uint256 amount) external {
+        require(msg.sender == auctionPool, "MappingToken: NOT_FROM_POOL");
+        _mint(to, amount);
     }
 
     function mint(address to, uint256 amount) external onlyOwner {
@@ -27,5 +33,9 @@ contract MappingToken is OwnableUpgradeable, ERC20Upgradeable {
 
     function setPair(address pair) external onlyOwner {
         uniswapPool = pair;
+    }
+
+    function setPool(address pool) external onlyOwner {
+        auctionPool = pool;
     }
 }

@@ -1,6 +1,6 @@
 // solhint-disable
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.17;
+pragma solidity 0.8.19;
 
 import "@openzeppelin/contracts-upgradeable/token/ERC1155/utils/ERC1155HolderUpgradeable.sol";
 import "@openzeppelin/contracts-upgradeable/utils/structs/EnumerableSetUpgradeable.sol";
@@ -20,12 +20,11 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
     EnumerableSetUpgradeable.UintSet private freeTokenIds;
 
     function initialize(
-        address coordinator,
         address token,
         address mToken,
         PoolParams memory params
     ) public initializer {
-        __BaseAuctionLiquidPool_init(coordinator, token, mToken, params);
+        __BaseAuctionLiquidPool_init(token, mToken, params);
         __ERC1155Holder_init();
 
         for (uint256 i; i < params.tokenIds.length; ++i) {
@@ -34,70 +33,51 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
         }
     }
 
-    /**
-     * @notice user can redeem random NFT by paying ratio amount of maNFT
-     * @dev this will request random number via chainlink vrf coordinator
-     * requested random number will be retrieved by following {fulfillRandomness}
-     */
-    function redeem(uint32 count) external override returns (uint256 requestId) {
-        require(block.timestamp < createdAt + lockPeriod, "Pool: NFTS_UNLOCKED");
-        require(freeTokenIds.length() >= count, "Pool: NO_FREE_NFTS");
+    /// @notice user can redeem random NFT by paying ratio amount of maNFT
+    function redeem(uint32 count) external override returns (uint256[] memory tokenIds_) {
+        require(block.timestamp >= createdAt + lockPeriod, "Pool: NFTS_LOCKED");
+        require(count <= freeTokenIds.length(), "Pool: NO_FREE_NFTS");
 
-        requestId = requestRandomWords(count);
-        redeemers[requestId] = msg.sender;
-        emit RedeemRequested(msg.sender, requestId);
-    }
-
-    /**
-     * @notice user can swap random NFT by paying ratio amount of maNFT
-     * @dev this will request random number via chainlink vrf coordinator
-     * requested random number will be retrieved by following {fulfillRandomness}
-     */
-    function swap(uint256 tokenId) external override returns (uint256 requestId) {
-        require(IERC1155(nft).balanceOf(msg.sender, tokenId) > 0, "Pool: NOT_OWNER");
-        require(block.timestamp < createdAt + lockPeriod, "Pool: NFTS_UNLOCKED");
-        require(freeTokenIds.length() > 0, "Pool: NO_FREE_NFTS");
-
-        requestId = requestRandomWords(1);
-        swaps[requestId] = tokenId;
-        swapper[requestId] = msg.sender;
-        emit SwapRequested(msg.sender, tokenId, requestId);
-    }
-
-    /**
-     * @notice above {redeem} function makes random number generation request
-     * @param requestId above {redeem} function returns requestId per request
-     * @param randomWords generated random number to determine which tokenId to redeem
-     */
-    function fulfillRandomWords(uint256 requestId, uint256[] memory randomWords) internal override {
-        if (freeTokenIds.length() == 0) return;
-
-        uint256[] memory tokenIds_ = new uint256[](randomWords.length);
-        address requestor = redeemers[requestId];
-        if (swaps[requestId] > 0) {
-            tokenIds_[0] = freeTokenIds.at(randomWords[0] % freeTokenIds.length());
-            uint256 swapId = swaps[requestId];
-            requestor = swapper[requestId];
-            tokenIds.add(swapId);
-            freeTokenIds.add(swapId);
-            tokenIds.remove(tokenIds_[0]);
-            freeTokenIds.remove(tokenIds_[0]);
-            delete swaps[requestId];
-            IERC1155(nft).safeTransferFrom(requestor, address(this), swapId, 1, "");
-            IERC1155(nft).safeTransferFrom(address(this), requestor, tokenIds_[0], 1, "");
-            emit Swaped(requestor, requestId, tokenIds_[0]);
-        } else if (requestor != address(0)) {
-            for (uint256 i; i < randomWords.length; ++i) {
-                tokenIds_[i] = freeTokenIds.at(randomWords[i] % freeTokenIds.length());
+        tokenIds_ = new uint256[](count);
+        if (count == freeTokenIds.length()) {
+            for (uint256 i; i < freeTokenIds.length(); ++i) {
+                tokenIds_[i] = freeTokenIds.at(i);
                 tokenIds.remove(tokenIds_[i]);
                 freeTokenIds.remove(tokenIds_[i]);
-                IERC1155(nft).safeTransferFrom(address(this), requestor, tokenIds_[i], 1, "");
+                IERC1155(nft).safeTransferFrom(address(this), msg.sender, tokenIds_[i], 1, "");
             }
-            emit Redeemed(requestor, requestId, tokenIds_);
         } else {
-            revert("Pool: INVALID_REQUEST_ID");
+            for (uint256 i; i < freeTokenIds.length(); ++i) {
+                uint256 randNo = uint256(
+                    keccak256(abi.encodePacked(block.prevrandao, block.timestamp, i))
+                );
+                tokenIds_[i] = freeTokenIds.at(randNo % freeTokenIds.length());
+                tokenIds.remove(tokenIds_[i]);
+                freeTokenIds.remove(tokenIds_[i]);
+                IERC1155(nft).safeTransferFrom(address(this), msg.sender, tokenIds_[i], 1, "");
+            }
         }
-        _distributeFee(requestor, randomWords.length);
+        _distributeFee(msg.sender, count);
+
+        emit Redeemed(msg.sender, tokenIds_);
+    }
+
+    /// @notice user can swap random NFT by paying ratio amount of maNFT
+    function swap(uint256 tokenId) external override returns (uint256 dstTokenId) {
+        require(IERC1155(nft).balanceOf(msg.sender, tokenId) > 0, "Pool: NOT_OWNER");
+        require(block.timestamp >= createdAt + lockPeriod, "Pool: NFTS_LOCKED");
+        require(freeTokenIds.length() > 0, "Pool: NO_FREE_NFTS");
+
+        uint256 randNo = uint256(keccak256(abi.encodePacked(block.prevrandao, block.timestamp)));
+        dstTokenId = freeTokenIds.at(randNo % freeTokenIds.length());
+        tokenIds.add(tokenId);
+        freeTokenIds.add(tokenId);
+        tokenIds.remove(dstTokenId);
+        freeTokenIds.remove(dstTokenId);
+        IERC1155(nft).safeTransferFrom(msg.sender, address(this), tokenId, 1, "");
+        IERC1155(nft).safeTransferFrom(address(this), msg.sender, dstTokenId, 1, "");
+
+        emit Swaped(msg.sender, tokenId, dstTokenId);
     }
 
     /**
@@ -106,6 +86,7 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
      * @param tokenId targeted token Id
      */
     function startAuction(uint256 tokenId) external override {
+        require(block.timestamp >= createdAt + lockPeriod, "Pool: NFTS_LOCKED");
         require(freeTokenIds.contains(tokenId), "Pool: NFT_IN_AUCTION");
         IERC20(mappingToken).safeTransferFrom(msg.sender, address(this), ratio);
         IERC20(dexToken).safeTransferFrom(msg.sender, address(this), startPrice);
@@ -165,21 +146,18 @@ contract AuctionLiquidPool1155 is BaseAuctionLiquidPool, ERC1155HolderUpgradeabl
 
     function recoverNFTs() external override onlyOwner {
         for (uint256 i; i < tokenIds.length(); ++i)
-            IERC1155(nft).safeTransferFrom(
-                address(this),
-                owner(),
-                tokenIds.at(i),
-                IERC1155(nft).balanceOf(address(this), tokenIds.at(i)),
-                ""
-            );
+            IERC1155(nft).safeTransferFrom(address(this), owner(), tokenIds.at(i), 1, "");
     }
 
-    function lockNFTs(uint256[] calldata tokenIds_) external override onlyOwner {
+    function lockNFTs(uint256[] calldata tokenIds_) external override {
         for (uint256 i; i < tokenIds_.length; ++i) {
             require(!tokenIds.contains(tokenIds_[i]), "Pool: NFT_ALREADY_LOCKED");
             IERC1155(nft).safeTransferFrom(msg.sender, address(this), tokenIds_[i], 1, "");
+            tokenIds.add(tokenIds_[i]);
+            freeTokenIds.add(tokenIds_[i]);
         }
-        emit NFTsLocked(tokenIds_);
+        IMappingToken(mappingToken).mintByLock(msg.sender, tokenIds_.length * ratio);
+        emit NFTsLocked(msg.sender, tokenIds_);
     }
 
     function getTokenIds() external view override returns (uint256[] memory tokenIds_) {

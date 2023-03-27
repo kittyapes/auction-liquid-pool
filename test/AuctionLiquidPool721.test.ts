@@ -13,26 +13,17 @@ describe('Auction Liquid Pool 721', function () {
   let mappingToken: Contract;
   let nft: Contract;
   let pool: Contract;
-  let coordinator: Contract;
 
   beforeEach(async () => {
     [owner, alice, bob] = await ethers.getSigners();
-
-    const VRFCoordinatorFactory = await ethers.getContractFactory('VRFCoordinatorV2Mock');
-    coordinator = await VRFCoordinatorFactory.deploy(utils.parseEther('0.1'), 1e9);
 
     const DexTokenFactory = await ethers.getContractFactory('DexToken');
     const Mock721NFTFactory = await ethers.getContractFactory('Mock721NFT');
     dexToken = await DexTokenFactory.deploy();
     nft = await Mock721NFTFactory.deploy();
 
-    const AuctionLiquidPoolManagerFactory = await ethers.getContractFactory(
-      'AuctionLiquidPoolManager',
-    );
-    const manager = await upgrades.deployProxy(AuctionLiquidPoolManagerFactory, [
-      coordinator.address,
-      dexToken.address,
-    ]);
+    const ManagerFactory = await ethers.getContractFactory('AuctionLiquidPoolManager');
+    const manager = await upgrades.deployProxy(ManagerFactory, [dexToken.address]);
 
     const MappingTokenFactory = await ethers.getContractFactory('MappingToken');
     const AuctionLiquidPool721Factory = await ethers.getContractFactory('AuctionLiquidPool721');
@@ -42,14 +33,14 @@ describe('Auction Liquid Pool 721', function () {
     await manager.setPool721Template(pool721Template.address);
 
     await dexToken.transfer(manager.address, utils.parseEther('10000'));
-    await nft.mint(4);
+    await nft.mint(3);
     await nft.setApprovalForAll(manager.address, true);
 
     const params = [
       'HypeX',
       constants.AddressZero,
       nft.address,
-      86400 * 7,
+      86400,
       86400,
       [0, 1, 2],
       false,
@@ -79,11 +70,13 @@ describe('Auction Liquid Pool 721', function () {
     await dexToken.connect(alice).approve(pool.address, utils.parseEther('1'));
     await dexToken.connect(bob).approve(pool.address, utils.parseEther('1'));
     await nft.setApprovalForAll(pool.address, true);
-
-    await pool.startAuction(0);
+    await nft.connect(alice).mint(3);
+    await nft.connect(alice).setApprovalForAll(pool.address, true);
+    await increaseTime(BigNumber.from('86400'));
   });
 
   it('#auction', async () => {
+    await pool.startAuction(0);
     await pool.connect(alice).bid(0);
     let auction = await pool.auctions(0);
     expect(auction[0]).to.eq(alice.address);
@@ -97,39 +90,35 @@ describe('Auction Liquid Pool 721', function () {
   });
 
   it('#redeem', async () => {
-    const tx = await pool.connect(alice).redeem(1);
-    const receipt = await tx.wait();
-    const requestId = receipt.events[receipt.events.length - 1].args.requestId;
     const beforeOwnerBal = await mappingToken.balanceOf(owner.address);
     const beforeAliceBal = await mappingToken.balanceOf(alice.address);
-    await coordinator.fundSubscription(await pool.s_subscriptionId(), utils.parseEther('100'));
-    await coordinator.fulfillRandomWordsWithOverride(requestId, pool.address, [123456]);
-    expect(await nft.ownerOf(2)).to.eq(alice.address);
+    const tx = await pool.connect(alice).redeem(2);
+    const receipt = await tx.wait();
+    const tokenIds = receipt.events[receipt.events.length - 1].args.tokenIds;
+    expect(await nft.ownerOf(tokenIds[0])).to.eq(alice.address);
+    expect(await nft.ownerOf(tokenIds[1])).to.eq(alice.address);
     expect(beforeAliceBal.sub(await mappingToken.balanceOf(alice.address))).to.eq(
-      utils.parseEther('2'),
+      utils.parseEther('4'),
     );
     expect((await mappingToken.balanceOf(owner.address)).sub(beforeOwnerBal)).to.eq(
-      utils.parseEther('2').div(20),
+      utils.parseEther('4').div(20),
     );
   });
 
   it('#swap', async () => {
-    await nft.transferFrom(owner.address, alice.address, 3);
     await nft.connect(alice).setApprovalForAll(pool.address, true);
     const tx = await pool.connect(alice).swap(3);
     const receipt = await tx.wait();
-    const requestId = receipt.events[receipt.events.length - 1].args.requestId;
-    const beforeOwnerBal = await mappingToken.balanceOf(owner.address);
-    const beforeAliceBal = await mappingToken.balanceOf(alice.address);
-    await coordinator.fundSubscription(await pool.s_subscriptionId(), utils.parseEther('100'));
-    await coordinator.fulfillRandomWordsWithOverride(requestId, pool.address, [123456]);
+    const tokenId = receipt.events[receipt.events.length - 1].args.dstTokenId;
     expect(await nft.ownerOf(3)).to.eq(pool.address);
-    expect(await nft.ownerOf(2)).to.eq(alice.address);
-    expect(beforeAliceBal.sub(await mappingToken.balanceOf(alice.address))).to.eq(
-      utils.parseEther('2'),
-    );
-    expect((await mappingToken.balanceOf(owner.address)).sub(beforeOwnerBal)).to.eq(
-      utils.parseEther('2').div(20),
+    expect(await nft.ownerOf(tokenId)).to.eq(alice.address);
+  });
+
+  it('#lockNFTs', async () => {
+    const beforeAliceBal = await mappingToken.balanceOf(alice.address);
+    await pool.connect(alice).lockNFTs([3, 4, 5]);
+    expect((await mappingToken.balanceOf(alice.address)).sub(beforeAliceBal)).to.eq(
+      utils.parseEther('6'),
     );
   });
 });

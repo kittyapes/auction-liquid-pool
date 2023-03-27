@@ -12,16 +12,16 @@ export default {
     hardhat: {
       initialBaseFeePerGas: 0,
       forking: {
-        url: `https://goerli.infura.io/v3/${process.env.INFURA_KEY}`,
+        url: `https://eth-goerli.alchemyapi.io/v2/${process.env.ALCHEMY_KEY}`,
       },
     },
     mainnet: {
-      url: `https://mainnet.infura.io/v3/${process.env.INFURA_KEY}`,
+      url: `https://eth-mainnet.alchemyapi.io/v2/${process.env.ALCHEMY_KEY}`,
       chainId: 1,
       accounts: [process.env.PRIVATE_KEY],
     },
     testnet: {
-      url: `https://goerli.infura.io/v3/${process.env.INFURA_KEY}`,
+      url: `https://eth-goerli.alchemyapi.io/v2/${process.env.ALCHEMY_KEY}`,
       chainId: 5,
       accounts: [process.env.PRIVATE_KEY],
     },
@@ -38,7 +38,7 @@ export default {
     apiKey: process.env.API_KEY,
   },
   solidity: {
-    compilers: [{ version: '0.8.17' }, { version: '0.4.24' }, { version: '0.5.16' }],
+    version: '0.8.19',
     settings: {
       optimizer: {
         enabled: true,

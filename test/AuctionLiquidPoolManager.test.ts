@@ -7,21 +7,13 @@ describe('Auction Liquid Pool Manager', function () {
   let nft: Contract;
 
   beforeEach(async () => {
-    const VRFCoordinatorFactory = await ethers.getContractFactory('VRFCoordinatorV2Mock');
-    const coordinator = await VRFCoordinatorFactory.deploy(utils.parseEther('0.1'), 1e9);
-
     const DexTokenFactory = await ethers.getContractFactory('DexToken');
     const Mock721NFTFactory = await ethers.getContractFactory('Mock721NFT');
     const dexToken = await DexTokenFactory.deploy();
     nft = await Mock721NFTFactory.deploy();
 
-    const AuctionLiquidPoolManagerFactory = await ethers.getContractFactory(
-      'AuctionLiquidPoolManager',
-    );
-    manager = await upgrades.deployProxy(AuctionLiquidPoolManagerFactory, [
-      coordinator.address,
-      dexToken.address,
-    ]);
+    const ManagerFactory = await ethers.getContractFactory('AuctionLiquidPoolManager');
+    manager = await upgrades.deployProxy(ManagerFactory, [dexToken.address]);
 
     const MappingTokenFactory = await ethers.getContractFactory('MappingToken');
     const AuctionLiquidPool721Factory = await ethers.getContractFactory('AuctionLiquidPool721');
@@ -40,7 +32,7 @@ describe('Auction Liquid Pool Manager', function () {
       'HypeX',
       constants.AddressZero,
       nft.address,
-      86400 * 7,
+      86400,
       86400,
       [0, 1, 2],
       false,

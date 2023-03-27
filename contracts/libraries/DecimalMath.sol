@@ -1,5 +1,5 @@
 //SPDX-License-Identifier: MIT
-pragma solidity ^0.8.17;
+pragma solidity ^0.8.19;
 
 library DecimalMath {
     uint256 private constant DENOMINATOR = 1000;

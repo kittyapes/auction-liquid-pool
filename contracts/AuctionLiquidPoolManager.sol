@@ -1,6 +1,6 @@
 // solhint-disable
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.17;
+pragma solidity 0.8.19;
 
 import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import "@openzeppelin/contracts/proxy/Clones.sol";
@@ -16,7 +16,6 @@ contract AuctionLiquidPoolManager is IBaseAuctionLiquidPool, OwnableUpgradeable 
     address private constant UNIV2_FACTORY = 0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f;
     address private constant UNIV2_ROUTER = 0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D;
 
-    address public vrfCoordinator;
     address public dexToken;
     address public treasury;
 
@@ -27,11 +26,11 @@ contract AuctionLiquidPoolManager is IBaseAuctionLiquidPool, OwnableUpgradeable 
 
     event PoolCreated(address indexed owner_, address pool_, bool is721_);
 
-    function initialize(address coordinator_, address token_) public initializer {
+    function initialize(address token) public initializer {
         __Ownable_init();
 
-        vrfCoordinator = coordinator_;
-        dexToken = token_;
+        require(token != address(0), "PoolManager: DEXT_0x0");
+        dexToken = token;
     }
 
     /**
@@ -65,7 +64,6 @@ contract AuctionLiquidPoolManager is IBaseAuctionLiquidPool, OwnableUpgradeable 
         IMappingToken mToken = IMappingToken(mTokenAddress);
         mToken.initialize(params.name, symbol, amount);
         mToken.setPair(IUniswapV2Factory(UNIV2_FACTORY).createPair(mTokenAddress, dexToken));
-        mToken.transferOwnership(msg.sender);
 
         mToken.approve(UNIV2_ROUTER, amount);
         IMappingToken(dexToken).approve(UNIV2_ROUTER, amount);
@@ -85,7 +83,7 @@ contract AuctionLiquidPoolManager is IBaseAuctionLiquidPool, OwnableUpgradeable 
             require(pool721Template != address(0), "PoolManager: 721_TEMPLATE_UNSET");
             poolAddress = Clones.clone(pool721Template);
             IAuctionLiquidPool pool = IAuctionLiquidPool(poolAddress);
-            pool.initialize(vrfCoordinator, dexToken, mTokenAddress, params);
+            pool.initialize(dexToken, mTokenAddress, params);
             pool.transferOwnership(msg.sender);
 
             for (uint256 i; i < params.tokenIds.length; ++i)
@@ -94,7 +92,7 @@ contract AuctionLiquidPoolManager is IBaseAuctionLiquidPool, OwnableUpgradeable 
             require(pool1155Template != address(0), "PoolManager: 1155_TEMPLATE_UNSET");
             poolAddress = Clones.clone(pool1155Template);
             IAuctionLiquidPool pool = IAuctionLiquidPool(poolAddress);
-            pool.initialize(vrfCoordinator, dexToken, mTokenAddress, params);
+            pool.initialize(dexToken, mTokenAddress, params);
             pool.transferOwnership(msg.sender);
 
             for (uint256 i; i < params.tokenIds.length; ++i)
@@ -107,8 +105,21 @@ contract AuctionLiquidPoolManager is IBaseAuctionLiquidPool, OwnableUpgradeable 
                 );
         }
 
+        mToken.setPool(poolAddress);
+        mToken.transferOwnership(msg.sender);
+
         pools.push(poolAddress);
         emit PoolCreated(msg.sender, poolAddress, cType == 1);
+    }
+
+    /**
+     * @notice set dex token
+     * @dev only contract owner can call this function
+     * @param token new dex token address
+     */
+    function setDexToken(address token) external onlyOwner {
+        require(token != address(0), "PoolManager: DEXT_0x0");
+        dexToken = token;
     }
 
     /**
