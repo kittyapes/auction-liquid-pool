@@ -29,6 +29,7 @@ abstract contract BaseAuctionLiquidPool is
 
     IAuctionLiquidPoolManager public manager;
 
+    string public logo;
     address public dexToken;
     address public mappingToken;
     address public nft;
@@ -73,6 +74,7 @@ abstract contract BaseAuctionLiquidPool is
         manager = IAuctionLiquidPoolManager(msg.sender);
         dexToken = token;
         mappingToken = mToken;
+        logo = params.logo;
         nft = params.nft;
         lockPeriod = params.lockPeriod;
         duration = params.duration;

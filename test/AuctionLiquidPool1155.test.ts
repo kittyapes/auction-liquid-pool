@@ -38,6 +38,7 @@ describe('Auction Liquid Pool 1155', function () {
 
     const params = [
       'HypeX',
+      '',
       constants.AddressZero,
       nft.address,
       86400,

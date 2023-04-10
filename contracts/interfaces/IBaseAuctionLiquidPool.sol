@@ -12,6 +12,8 @@ interface IBaseAuctionLiquidPool {
     struct PoolParams {
         // name of the collection for mapping token
         string name;
+        // pool avatar ipfs url
+        string logo;
         // owner of the pool
         address owner;
         // nft contract address

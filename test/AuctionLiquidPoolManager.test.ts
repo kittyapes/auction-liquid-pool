@@ -30,6 +30,7 @@ describe('Auction Liquid Pool Manager', function () {
   it('#createPool', async () => {
     const params = [
       'HypeX',
+      '',
       constants.AddressZero,
       nft.address,
       86400,
