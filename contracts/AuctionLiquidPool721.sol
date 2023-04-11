@@ -145,8 +145,11 @@ contract AuctionLiquidPool721 is BaseAuctionLiquidPool, ERC721HolderUpgradeable 
     }
 
     function recoverNFTs() external override onlyOwner {
-        for (uint256 i; i < tokenIds.length(); ++i)
-            IERC721(nft).safeTransferFrom(address(this), owner(), tokenIds.at(i));
+        uint256 len = tokenIds.length();
+        for (uint256 i; i < len; ++i) {
+            IERC721(nft).safeTransferFrom(address(this), owner(), tokenIds.at(0));
+            tokenIds.remove(tokenIds.at(0));
+        }
     }
 
     function lockNFTs(uint256[] calldata tokenIds_) external override {
